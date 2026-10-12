@@ -1,2 +1,5 @@
 .DS_Store
 .vscode
+
+pb_data
+node_modules
