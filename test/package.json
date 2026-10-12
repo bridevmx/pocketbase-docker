@@ -1,0 +1,10 @@
+{
+  "name": "clip-tests",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "smoke": "node smoke-clip.mjs",
+    "real": "node clip-real.mjs --browser"
+  },
+  "devDependencies": { "playwright": "^1.64.0" }
+}

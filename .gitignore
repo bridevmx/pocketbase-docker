@@ -3,3 +3,6 @@
 
 pb_data
 node_modules
+test/.env
+test/.data
+test/node_modules

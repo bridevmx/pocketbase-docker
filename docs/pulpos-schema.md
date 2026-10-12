@@ -653,7 +653,7 @@ Tipos: `text` `number` `bool` `date` `select(...)` `file` `rel→colección` (`[
 | `origin` * | select(pos\|pos_save_as_order\|online_catalog\|direct_invoice) |
 | `payment_status` * | select(completed\|pending\|cancelled\|refunded) |
 | `shipping_status` * | select(pending\|completed\|cancelled\|returned) |
-| `way_of_payment` | select(to_agree_after_purchase\|mercadopago\|bank_transfer\|credit\|collect_on_delivery) |
+| `way_of_payment` | select(to_agree_after_purchase\|mercadopago\|clip\|bank_transfer\|credit\|collect_on_delivery) |
 | `shipping_method` | select(to_agree_after_purchase\|pickup\|delivery) |
 | `subtotal` | number |
 | `discounts` | number |
@@ -1299,7 +1299,7 @@ Tipos: `text` `number` `bool` `date` `select(...)` `file` `rel→colección` (`[
 | campo | tipo |
 |---|---|
 | `catalog` * | rel→catalogs |
-| `way` * | select(to_agree_after_purchase\|mercadopago\|bank_transfer\|credit\|collect_on_delivery) |
+| `way` * | select(to_agree_after_purchase\|mercadopago\|clip\|bank_transfer\|credit\|collect_on_delivery) |
 
 Únicos: (catalog, way)
 

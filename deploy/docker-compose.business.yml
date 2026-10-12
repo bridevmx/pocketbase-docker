@@ -7,6 +7,10 @@ services:
     restart: unless-stopped
     environment:
       ENCRYPTION: ${ENCRYPTION}          # 32 caracteres: cifra los ajustes de la instancia
+      # Pagos con Clip (opcional; si faltan, la tienda no ofrece Clip). Se definen en el .env de la instancia.
+      CLIP_API_TOKEN: ${CLIP_API_TOKEN:-}
+      PAYMENT_LINKS_WEBHOOK_TOKEN: ${PAYMENT_LINKS_WEBHOOK_TOKEN:-}
+      PAYMENT_LINKS_PUBLIC_URL: ${PAYMENT_LINKS_PUBLIC_URL:-}
     command: ["--encryptionEnv", "ENCRYPTION"]
     volumes:
       - ./pb_data:/pb_data               # base de datos + archivos del negocio (esto es lo que se respalda)

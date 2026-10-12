@@ -38,7 +38,7 @@ export default [
   }),
   col('catalog_payment_ways', {
     kind: 'config',
-    fields: [rel('catalog', 'catalogs', { required: true, cascade: true }), sel('way', ['to_agree_after_purchase', 'mercadopago', 'bank_transfer', 'credit', 'collect_on_delivery'], { required: true })],
+    fields: [rel('catalog', 'catalogs', { required: true, cascade: true }), sel('way', ['to_agree_after_purchase', 'mercadopago', 'clip', 'bank_transfer', 'credit', 'collect_on_delivery'], { required: true })],
     idx: [uniq(['catalog', 'way'])],
   }),
   col('catalog_shipping_methods', {

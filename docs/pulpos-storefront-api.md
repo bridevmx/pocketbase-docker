@@ -26,11 +26,21 @@ Cabeceras opcionales: `x-catalog-variant-slug` (`public` o el `catalog_path` de 
 - Licencia: suspendida → 503 `store_unavailable`; en solo lectura la tienda se ve, pero los pedidos dan 402. Tienda desactivada (`deactivated_at`) → 404.
 - Límite de peticiones: `POST /api/shop/orders` 30 por hora por IP (en `1760000002_pulpos_settings.js`; configura *trusted proxy* detrás de Caddy).
 
+## Pago con tarjeta (Clip)
+`way_of_payment: "clip"` (Checkout Redireccionado de Clip, plugin `pb_hooks/clip-payment-links/`). Solo se ofrece en `/config` si la instancia tiene `CLIP_API_TOKEN` (o `CLIP_API_KEY`+`CLIP_API_SECRET`), `PAYMENT_LINKS_WEBHOOK_TOKEN` (16+ caracteres) y `PAYMENT_LINKS_PUBLIC_URL` (URL pública de la instancia, que Clip debe poder ver). El servidor de la instancia debe estar en México o EE. UU.
+
+- `POST /api/shop/orders` devuelve además `payment_url` (llevar al comprador ahí). Si Clip falla, el pedido se crea igual con `payment_error` (`clip_unavailable`, `clip_not_configured`).
+- `POST /api/shop/orders/{friendly_id}/pay` → `{ payment_url, payment_qr_url }`: link vigente o uno nuevo (si venció o falló).
+- `GET /api/shop/orders/{friendly_id}` incluye `payment_url` mientras el pago siga pendiente.
+- **El pago se confirma solo contra la API de Clip** (el webhook y el retorno del comprador son una señal, no una prueba): link `COMPLETED` con nuestra referencia firmada, monto y moneda. Entonces se crea un `order_payments` (`card`), el pedido pasa a `payment_status = completed` y se suma la lealtad. Un cron revisa pendientes cada 5 min y otro cancela pedidos de Clip sin pago a las 73 h.
+- Mínimo **$1.00** (`clip_min_amount`); solo tarjeta de crédito/débito (el efectivo diferido dejaría existencias comprometidas). Sin reembolsos por API de Clip (se hacen en su panel).
+- Pruebas: `node test/smoke-clip.mjs` (Clip falso, sin dinero) y `node test/clip-real.mjs` (cobra $1.00 real con cloudflared; ver `test/.env.example`).
+
 ## Errores (clave en `data`)
-`store_not_found`, `store_unavailable`, `cart_empty`, `cart_too_large` (50), `invalid_cart_item`, `product_unavailable`, `no_price`, `items_exceed_stock`, `payment_way_unavailable`, `shipping_method_unavailable`, `invalid_client`, `invalid_phone`, `invalid_email`, `address_required`, `request_id_required`.
+`store_not_found`, `store_unavailable`, `cart_empty`, `cart_too_large` (50), `invalid_cart_item`, `product_unavailable`, `no_price`, `items_exceed_stock`, `payment_way_unavailable`, `clip_min_amount`, `shipping_method_unavailable`, `invalid_client`, `invalid_phone`, `invalid_email`, `address_required`, `request_id_required`.
 
 ## Supuestos míos / pendiente
 - Una variante sin precio propio para un producto cae a la lista pública (igual que el POS).
-- Sin pago en línea: `mercadopago` solo se acepta si existen credenciales, pero **no hay** `getPaymentUrl` (fuera de alcance).
+- `mercadopago` solo se acepta si existen credenciales, pero **no hay** `getPaymentUrl`; el pago en línea es con Clip (arriba).
 - Sin `world.getStates` ni subida de banners/fotos por rutas propias (se administran como archivos de PocketBase).
 - Los folios cortos de pedido sirven de "clave" del seguimiento; no se devuelven datos personales del cliente.

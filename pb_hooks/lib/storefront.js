@@ -6,6 +6,7 @@ const S = require(`${__hooks}/lib/stock.js`);
 const L = require(`${__hooks}/lib/loyalty.js`);
 const LIC = require(`${__hooks}/lib/license.js`);
 const O = require(`${__hooks}/lib/orders.js`);
+const CP = require(`${__hooks}/lib/clip_pay.js`);
 
 const MAX_ITEMS = 50, MAX_QTY = 9999;
 
@@ -115,7 +116,7 @@ function config(app, headers) {
     categories: c.getString('categories'), volume_pricing_enabled: c.getBool('volume_pricing_enabled'),
     variant: cx.variant, price_list: cx.list.getString('name'),
     variants: U.all(app, 'price_lists', 'catalog_path != "" && catalog_hidden = false && deleted_at = ""').map((l) => ({ name: l.getString('name'), path: l.getString('catalog_path') })),
-    payment_ways: ways.filter((w) => w !== 'mercadopago' || mp).map((w) => ({ way: w, instructions: instr[w] || '' })),
+    payment_ways: ways.filter((w) => (w !== 'mercadopago' || mp) && (w !== 'clip' || CP.configured())).map((w) => ({ way: w, instructions: instr[w] || '' })),
     shipping_methods: methods.map((m) => ({ method: m, instructions: m === 'pickup' ? c.getString('pickup_instructions') : m === 'delivery' ? c.getString('delivery_instructions') : c.getString('agreed_shipping_instructions'), price: m === 'delivery' ? c.getFloat('delivery_default_price') : 0 })),
     pickup_address: addr,
     home: { active: c.getBool('home_active'), show_hero: c.getBool('home_show_hero'), title: c.getString('home_title'), main_button_text: c.getString('home_main_button_text'), hero: fileUrls(c, 'home_hero_photo') },
@@ -230,6 +231,7 @@ function serializeOrder(app, order) {
     id: o.id, friendly_id: o.friendly_id, order_number: o.order_number, subtotal: o.subtotal, delivery_cost: o.delivery_cost, total: o.total,
     payment_status: o.payment_status, shipping_status: o.shipping_status, way_of_payment: o.way_of_payment, shipping_method: o.shipping_method, made_at: o.made_at,
     items: U.all(app, 'order_items', 'order = {:o} && combo_parent = ""', { o: order.id }, 'created').map((i) => ({ name: i.getString('name'), quantity: i.getFloat('quantity'), unit_price: i.getFloat('unit_price'), total: i.getFloat('total') })),
+    payment_url: o.way_of_payment === 'clip' && o.payment_status === 'pending' ? (CP.pendingLink(app, order.id) || { getString: () => '' }).getString('url') : '',
     payment_instructions: c ? ({ bank_transfer: c.getString('bank_transfer_instructions'), to_agree_after_purchase: c.getString('agreed_payment_instructions'), credit: c.getString('credit_instructions'), collect_on_delivery: c.getString('collect_on_delivery_instructions') })[o.way_of_payment] || '' : '',
   };
 }
@@ -248,7 +250,7 @@ function createOrder(app, headers, body) {
       const ways = U.all(tx, 'catalog_payment_ways', 'catalog = {:c}', { c: c.id }).map((r) => r.getString('way'));
       const methods = U.all(tx, 'catalog_shipping_methods', 'catalog = {:c}', { c: c.id }).map((r) => r.getString('method'));
       const way = String(body.way_of_payment || 'to_agree_after_purchase'), method = String(body.shipping_method || 'to_agree_after_purchase');
-      if (ways.indexOf(way) === -1 || (way === 'mercadopago' && !U.first(tx, 'mercadopago_credentials', 'id != ""'))) throw U.fail(400, 'Forma de pago no disponible', 'payment_way_unavailable');
+      if (ways.indexOf(way) === -1 || (way === 'mercadopago' && !U.first(tx, 'mercadopago_credentials', 'id != ""')) || (way === 'clip' && !CP.configured())) throw U.fail(400, 'Forma de pago no disponible', 'payment_way_unavailable');
       if (methods.indexOf(method) === -1) throw U.fail(400, 'Método de envío no disponible', 'shipping_method_unavailable');
 
       const lines = priceCart(tx, cx, body.items);
@@ -270,6 +272,7 @@ function createOrder(app, headers, body) {
       const deliveryCost = method === 'delivery' ? c.getFloat('delivery_default_price') : 0;
       const total = U.r2(subtotal + deliveryCost);
       if (!(total > 0)) throw U.fail(400, 'El total debe ser mayor a cero', 'invalid_total');
+      if (way === 'clip' && total < CP.MIN_AMOUNT) throw U.fail(400, `Con Clip el total mínimo es $${CP.MIN_AMOUNT}`, 'clip_min_amount');
 
       const location = tx.findRecordById('locations', cx.origin);
       const series = U.first(tx, 'order_series', 'is_default = true && deleted_at = ""');
@@ -311,6 +314,7 @@ function createOrder(app, headers, body) {
       out = serializeOrder(tx, order);
       out.pickup_instructions = method === 'pickup' ? c.getString('pickup_instructions') : '';
     });
+    if (out.way_of_payment === 'clip') { const r = CP.ensureLink(app, out.id); out.payment_url = r.url; if (r.error) out.payment_error = r.error; }
   } catch (err) {
     const again = dup(); if (again) return again;
     throw err;
