@@ -1,0 +1,722 @@
+{
+ "Country": [
+  "MX"
+ ],
+ "ChargebeeSubscriptionStatus": [
+  "FUTURE",
+  "IN_TRIAL",
+  "ACTIVE",
+  "NON_RENEWING",
+  "PAUSED",
+  "CANCELLED",
+  "TRANSFERRED"
+ ],
+ "AccountType": [
+  "BUSINESS",
+  "RESELLER"
+ ],
+ "Role": [
+  "ADMIN",
+  "USER",
+  "SUPERADMIN"
+ ],
+ "AuthProvider": [
+  "PASSWORD",
+  "GOOGLE"
+ ],
+ "BusinessType": [
+  "GROCERIES",
+  "PHARMACY",
+  "HARDWARE",
+  "AUTO_PARTS",
+  "CLOTHING",
+  "ITEMS",
+  "BOOKS",
+  "FURNITURE",
+  "COFFEE",
+  "RESTAURANT",
+  "OTHER",
+  "PETS",
+  "HEALTH",
+  "JEWELRY",
+  "WHOLESALE",
+  "AUTO_REPAIR",
+  "ELECTRONICS",
+  "OPTICS",
+  "BAKERY",
+  "GREENGROCER",
+  "BUTCHERS",
+  "STATIONERY",
+  "BEAUTY",
+  "SERVICES",
+  "CLEANING",
+  "PRINTING"
+ ],
+ "AvgMonthlyBilling": [
+  "NO_INCOME",
+  "LOWER_THAN_FIVE_THOUSAND",
+  "BETWEEN_FIVE_AND_TEN_THOUSAND",
+  "BETWEEN_TEN_AND_FIFTY_THOUSAND",
+  "MORE_THAN_FIFTY_THOUSAND",
+  "OPTION_1",
+  "OPTION_2",
+  "OPTION_3",
+  "OPTION_4"
+ ],
+ "TypeOfSale": [
+  "RETAIL",
+  "WHOLESALE"
+ ],
+ "LocationType": [
+  "WAREHOUSE",
+  "BRANCH"
+ ],
+ "PrintingMode": [
+  "SYSTEM_PRINTING",
+  "ZADIG_PRINTING"
+ ],
+ "Currency": [
+  "MXN"
+ ],
+ "CostType": [
+  "NET",
+  "GROSS"
+ ],
+ "ProductType": [
+  "PRODUCT",
+  "COMBO",
+  "SERVICE"
+ ],
+ "TaxType": [
+  "VAT",
+  "IEPS",
+  "ISR"
+ ],
+ "StockMovementDiscriminator": [
+  "BASIC",
+  "BATCH",
+  "VARIANT"
+ ],
+ "StockMovementAdjustmentReason": [
+  "CORRECTION",
+  "RECOUNT",
+  "EXPIRATION",
+  "THEFT_OR_LOSS",
+  "DETERIORATION",
+  "GIFT",
+  "MASSIVE_EDITION",
+  "PLAN_LIMITATION"
+ ],
+ "StockMovementOrigin": [
+  "PRODUCT_CREATE",
+  "ORDER_CREATE",
+  "ORDER_DELETE",
+  "ORDER_RETURN",
+  "PURCHASE_CREATE",
+  "PURCHASE_DELETE",
+  "TRANSFER_SEND",
+  "TRANSFER_RECEIVE",
+  "LOCATION_DELETE",
+  "ADJUSTMENT",
+  "ADJUSTMENT_CHANGE_STOCK_TRACKING",
+  "MANUFACTURING_MATERIAL_USE",
+  "MANUFACTURING_MATERIAL_RETURN",
+  "MANUFACTURING_PRODUCTION",
+  "TRANSFER_DELETE",
+  "STOCK_ADJUSTMENT",
+  "STOCK_ADJUSTMENT_DELETE"
+ ],
+ "PaymentMethod": [
+  "CASH",
+  "CARD",
+  "TRANSFER",
+  "CHECK",
+  "CREDIT",
+  "DEBIT_CARD",
+  "PAYMENT_INTERMEDIARY",
+  "ELECTRONIC_WALLET",
+  "ELECTRONIC_MONEY",
+  "SERVICE_CARD",
+  "FOOD_VOUCHER"
+ ],
+ "OrderPaymentNotificationStatus": [
+  "PENDING",
+  "ACCEPTED",
+  "REJECTED"
+ ],
+ "OnlinePaymentStatus": [
+  "PENDING",
+  "COMPLETED",
+  "FAILED"
+ ],
+ "OrderItemPriceType": [
+  "DEFAULT",
+  "PERSONALIZED"
+ ],
+ "ItemDiscountType": [
+  "PERCENTAGE",
+  "FIXED"
+ ],
+ "CartDiscountType": [
+  "PERCENTAGE",
+  "FIXED"
+ ],
+ "OrderPaymentStatus": [
+  "COMPLETED",
+  "PENDING",
+  "CANCELLED",
+  "REFUNDED"
+ ],
+ "OrderShippingStatus": [
+  "PENDING",
+  "COMPLETED",
+  "CANCELLED",
+  "RETURNED"
+ ],
+ "OrderOrigin": [
+  "POS",
+  "POS_SAVE_AS_ORDER",
+  "ONLINE_CATALOG",
+  "DIRECT_INVOICE"
+ ],
+ "OrderWayOfPayment": [
+  "TO_AGREE_AFTER_PURCHASE",
+  "MERCADOPAGO",
+  "BANK_TRANSFER",
+  "CREDIT",
+  "COLLECT_ON_DELIVERY"
+ ],
+ "OrderShippingMethod": [
+  "TO_AGREE_AFTER_PURCHASE",
+  "PICKUP",
+  "DELIVERY"
+ ],
+ "OrderRefundReason": [
+  "CHANGE_OF_MIND",
+  "EXPIRED_PRODUCT",
+  "DAMAGED_GOODS",
+  "WRONG_PRODUCT",
+  "WRONG_VARIANT",
+  "OTHER"
+ ],
+ "PurchaseStatus": [
+  "DRAFT",
+  "COMPLETED"
+ ],
+ "CashierAuditStatus": [
+  "DRAFT",
+  "COMPLETED"
+ ],
+ "CashMovementType": [
+  "EXPENSE_PAYMENT",
+  "MANUAL_MOVEMENT",
+  "PURCHASE_PAYMENT"
+ ],
+ "InvoiceOrigin": [
+  "POS",
+  "CLIENTS_PORTAL"
+ ],
+ "InvoiceStatus": [
+  "VALID",
+  "VALID_CANCEL_PENDING",
+  "VALID_CANCEL_REJECTED",
+  "CANCELLED"
+ ],
+ "InvoiceType": [
+  "INCOME",
+  "PAYMENT",
+  "CREDIT_NOTE"
+ ],
+ "ClientType": [
+  "GENERAL_PUBLIC",
+  "ACCOUNT_CLIENT"
+ ],
+ "ImageType": [
+  "PRODUCT_PHOTO",
+  "LOGO",
+  "TICKET_LOGO",
+  "PRODUCT_CATEGORY_PHOTO",
+  "CATALOG_PHOTO",
+  "CATALOG_BANNER",
+  "CLIENT_PAYMENT_RECEIPT",
+  "WHATSAPP_MESSAGE"
+ ],
+ "ImageStatus": [
+  "UPLOADED",
+  "CONNECTED"
+ ],
+ "FileStatus": [
+  "UPLOADED",
+  "CONNECTED"
+ ],
+ "FileAccess": [
+  "PUBLIC",
+  "PRIVATE"
+ ],
+ "OutlayInvoiceFileType": [
+  "PDF",
+  "XML"
+ ],
+ "StoreAgentKnowledgeFileType": [
+  "PDF",
+  "CSV",
+  "XLSX"
+ ],
+ "SettingBatchStrategy": [
+  "MANUAL",
+  "AUTOMATIC"
+ ],
+ "MinProfitMarginPolicy": [
+  "WARN",
+  "BLOCK"
+ ],
+ "PulposAppSuggestionSource": [
+  "AI_ASSISTANT",
+  "AI_SELLER",
+  "HEADER",
+  "NATIVE"
+ ],
+ "SettingGlobalInvoiceGrouping": [
+  "BY_MONTH",
+  "BY_WEEK",
+  "BY_DAY"
+ ],
+ "SelfInvoicePolicy": [
+  "NO_SELF_INVOICE",
+  "UNTIL_END_OF_MONTH",
+  "CUSTOM_PERIOD"
+ ],
+ "EmailType": [
+  "CASHIER_AUDIT",
+  "DAILY_SUMMARY",
+  "CATALOG_ORDER",
+  "SELF_INVOICE",
+  "SUBSCRIPTION_INVOICE"
+ ],
+ "LogoType": [
+  "ACCOUNT",
+  "TICKET"
+ ],
+ "QuotationStatus": [
+  "CREATED",
+  "SOLD"
+ ],
+ "QuotationItemPriceType": [
+  "DEFAULT",
+  "PERSONALIZED"
+ ],
+ "CatalogConfigProductsWithoutStock": [
+  "SHOW",
+  "HIDE"
+ ],
+ "CatalogConfigAcquisitionLimit": [
+  "LIMIT_TO_STOCK",
+  "UNLIMITED"
+ ],
+ "CatalogConfigCategories": [
+  "SHOW",
+  "HIDE"
+ ],
+ "CatalogUIVariant": [
+  "RETAIL",
+  "WHOLESALE"
+ ],
+ "CatalogPhotoType": [
+  "HERO"
+ ],
+ "CatalogBannerType": [
+  "PROMOTIONAL"
+ ],
+ "TransferStatus": [
+  "DRAFT",
+  "SENT",
+  "RECEIVED"
+ ],
+ "TransferEventType": [
+  "CREATED",
+  "SENT",
+  "RECEIVED",
+  "UPDATED_WHILE_DRAFT",
+  "COMMENT"
+ ],
+ "StockAdjustmentStatus": [
+  "DRAFT",
+  "COMPLETED"
+ ],
+ "StockAdjustmentType": [
+  "ENTRY",
+  "EXIT",
+  "COUNT"
+ ],
+ "StockAdjustmentEventType": [
+  "CREATED_AS_DRAFT",
+  "CREATED_AS_COMPLETED",
+  "UPDATED_WHILE_DRAFT",
+  "COMPLETED",
+  "COMMENT"
+ ],
+ "ManufacturingOrderStatus": [
+  "CREATED",
+  "STARTED",
+  "FINISHED",
+  "CANCELLED"
+ ],
+ "ManufacturingOrderEventType": [
+  "CREATED",
+  "STARTED",
+  "FINISHED",
+  "CANCELLED",
+  "COMMENT",
+  "USE_MATERIAL_STOCK",
+  "RETURN_MATERIAL_STOCK"
+ ],
+ "AccountAffiliationStatus": [
+  "PENDING",
+  "ACCEPTED"
+ ],
+ "AccountAffiliationType": [
+  "RESELLER",
+  "REFERRAL"
+ ],
+ "AffiliationPaymentOrigin": [
+  "SUBSCRIPTION",
+  "BRANCH",
+  "INVOICE"
+ ],
+ "AffiliationPaymentStatus": [
+  "PENDING",
+  "PAID",
+  "IN_REVIEW",
+  "REJECTED"
+ ],
+ "AffiliationPaymentStatusReason": [
+  "SUBSCRIPTION_CANCELLED",
+  "UNUSUAL_ACTIVITY",
+  "MISSING_BANK_ACCOUNT_DETAILS",
+  "WRONG_BANK_ACCOUNT_DETAILS",
+  "CUSTOMER_UNPAID_INVOICES",
+  "OTHER"
+ ],
+ "PulposAppCommunicationType": [
+  "ALERT",
+  "ERROR",
+  "SUCCESS",
+  "INFO",
+  "NEWS",
+  "RELEASE"
+ ],
+ "StoreAgentResponseLength": [
+  "SHORT",
+  "MEDIUM",
+  "LONG"
+ ],
+ "StoreAgentOutOfStockPolicy": [
+  "NOTIFY",
+  "IGNORE_PRODUCTS"
+ ],
+ "StoreAgentFAQCategory": [
+  "SHIPPING_METHODS",
+  "OPENING_HOURS",
+  "RETURN_POLICY",
+  "ABOUT",
+  "CUSTOM"
+ ],
+ "AssistantReviewStatus": [
+  "OK",
+  "NOT_OK"
+ ],
+ "AssistantIssueSolved": [
+  "YES",
+  "NO"
+ ],
+ "AssistantSupportRating": [
+  "VERY_DISSATISFIED",
+  "DISSATISFIED",
+  "NEUTRAL",
+  "SATISFIED",
+  "VERY_SATISFIED"
+ ],
+ "AssistantMessageRole": [
+  "USER",
+  "ASSISTANT",
+  "SUPPORT_TEAM"
+ ],
+ "AssistantAttachmentKind": [
+  "IMAGE",
+  "AUDIO",
+  "VIDEO",
+  "DOCUMENT"
+ ],
+ "ExternalDigitalServiceType": [
+  "SERVICE_PAYMENT",
+  "RECHARGE",
+  "GIFT_CARD",
+  "BALANCE_CHECK"
+ ],
+ "ExternalDigitalServiceReferenceType": [
+  "PHONE_NUMBER",
+  "BARCODE",
+  "CUSTOM"
+ ],
+ "ExternalDigitalServiceCategoryType": [
+  "MOBILE_POSTPAID",
+  "HOME",
+  "GOVERNMENT_AND_TAXES",
+  "FINANCIAL_SERVICES",
+  "CATALOG_PURCHASES",
+  "PREPAID_SERVICES",
+  "WATER_PAYMENT",
+  "ENTERTAINMENT",
+  "PUBLIC_TRANSPORT",
+  "OTHER"
+ ],
+ "PromotionType": [
+  "CART_TOTAL",
+  "SINGLE_TARGET",
+  "MULTI_TARGET",
+  "MULTI_TARGET_ADVANCED"
+ ],
+ "PromotionApplicationType": [
+  "MANUAL",
+  "AUTOMATIC"
+ ],
+ "PromotionClientRestriction": [
+  "NO_RESTRICTION",
+  "REGISTERED_CLIENTS",
+  "CLIENTS_LIST"
+ ],
+ "PromotionAmountType": [
+  "FIXED",
+  "PERCENTAGE"
+ ],
+ "MultiTargetPromotionType": [
+  "TWO_FOR_ONE",
+  "THREE_FOR_TWO",
+  "SECOND_FIFTY_PERCENT",
+  "THIRD_FIFTY_PERCENT",
+  "CUSTOM",
+  "ADVANCED"
+ ],
+ "ReconciliationMovementType": [
+  "INCOME",
+  "SPEND"
+ ],
+ "ReconciliationMovementStatus": [
+  "PENDING",
+  "DONE"
+ ],
+ "ReconciliationPulposTransactionEntity": [
+  "ORDER",
+  "ORDER_PAYMENT",
+  "ORDER_UNIFIED_PAYMENT",
+  "ORDER_REFUND_PAYMENT",
+  "PURCHASE",
+  "PURCHASE_PAYMENT",
+  "EXPENSE",
+  "EXPENSE_PAYMENT"
+ ],
+ "ReconciliationSourceType": [
+  "BANK",
+  "DIGITAL_BANK",
+  "CREDIT_CARD"
+ ],
+ "PlatformSource": [
+  "WHATSAPP"
+ ],
+ "PlatformMessageDirection": [
+  "INBOUND",
+  "OUTBOUND"
+ ],
+ "PlatformMessageType": [
+  "TEXT",
+  "AUDIO",
+  "IMAGE",
+  "BUTTON",
+  "DOCUMENT",
+  "VIDEO",
+  "STICKER",
+  "OTHER"
+ ],
+ "PlatformMessageStatus": [
+  "PENDING",
+  "SENT",
+  "DELIVERED",
+  "READ",
+  "FAILED"
+ ],
+ "PlatformMessageSender": [
+  "HUMAN",
+  "SELLER_AGENT"
+ ],
+ "LoyaltyProgramMovementOrigin": [
+  "ORDER_EARN",
+  "ORDER_SPEND",
+  "ORDER_PAYMENT_EARN",
+  "ORDER_PAYMENT_DELETE_REVERT",
+  "ORDER_DELETE_EARN_REVERT",
+  "ORDER_REFUND_EARN_REVERT",
+  "ORDER_DELETE_SPEND_REVERT",
+  "ORDER_REFUND_SPEND_REVERT",
+  "ORDER_ASSIGN_CLIENT",
+  "ORDER_REMOVE_CLIENT",
+  "ADJUSTMENT"
+ ],
+ "ModelName": [
+  "State",
+  "AccountSubscriptionStatus",
+  "Account",
+  "OnboardingStatus",
+  "User",
+  "ResellerProfile",
+  "BusinessProfile",
+  "Location",
+  "TicketDetails",
+  "FiscalProfile",
+  "SelfInvoiceProfile",
+  "ProductCategory",
+  "ProductBrand",
+  "CustomPriceType",
+  "ProductCustomPrice",
+  "ProductStock",
+  "ProductStorage",
+  "Product",
+  "ProductProfile",
+  "ProductCombination",
+  "ManufacturingBlueprintItem",
+  "Tax",
+  "ProductBatchStock",
+  "ProductBatch",
+  "StockMovement",
+  "CustomPaymentMethod",
+  "OrderPayment",
+  "OrderPaymentNotification",
+  "UnifiedDebtPayment",
+  "OrderOnlinePayment",
+  "OrderItemProductBatchQuantity",
+  "OrderItemProduct",
+  "OrderDeliveryCost",
+  "OrderItemProductDiscount",
+  "OrderItemCartDiscount",
+  "Order",
+  "OrderSeries",
+  "OrderRefund",
+  "OrderItemRefundBatchQuantity",
+  "OrderItemRefund",
+  "OrderRefundPayment",
+  "OrderDebt",
+  "OrderJournal",
+  "QuotationJournal",
+  "SatCategory",
+  "MeasureUnit",
+  "Purchase",
+  "PurchaseDebt",
+  "PurchasePayment",
+  "PurchaseItemProductBatchQuantity",
+  "PurchaseItem",
+  "Expense",
+  "ExpensePayment",
+  "ExpenseDebt",
+  "Provider",
+  "Cashier",
+  "CashierAudit",
+  "CashierAuditItem",
+  "CashMovement",
+  "Address",
+  "FiscalRegime",
+  "FiscalUseCase",
+  "Invoice",
+  "InvoiceTypeToSeries",
+  "PulposSubscriptionInvoice",
+  "ClientDebtLimit",
+  "Client",
+  "Image",
+  "File",
+  "OutlayInvoiceFile",
+  "StoreAgentKnowledgeFile",
+  "AccountSettings",
+  "ManufacturingSettings",
+  "StockSettings",
+  "QuotationSettings",
+  "OrderSettings",
+  "UpgradePromotion",
+  "NativeReview",
+  "PulposAppSuggestion",
+  "InvoicingSettings",
+  "EmailSendingConfiguration",
+  "ProductProfilePhoto",
+  "Logo",
+  "ProductCategoryPhoto",
+  "Quotation",
+  "QuotationItem",
+  "QuotationManualEntryItem",
+  "QuotationItemDiscount",
+  "QuotationCartDiscount",
+  "Catalog",
+  "CatalogConfiguration",
+  "LocationStockVisibilityToCatalog",
+  "CatalogOrderShippingConfiguration",
+  "CatalogOrderPaymentConfiguration",
+  "MercadoPagoCredentials",
+  "CatalogHomePagePersonalization",
+  "CatalogPhoto",
+  "CatalogBanner",
+  "CatalogVariantConfig",
+  "Prescription",
+  "GlobalInvoice",
+  "Transfer",
+  "TransferItem",
+  "TransferItemBatchQuantity",
+  "TransferEvent",
+  "StockAdjustment",
+  "StockAdjustmentItem",
+  "StockAdjustmentItemBatchQuantity",
+  "StockAdjustmentEvent",
+  "ManufacturingOrder",
+  "ManufacturingOrderMaterialItem",
+  "ManufacturingOrderEvent",
+  "AccountAffiliation",
+  "AffiliationPayment",
+  "UserBankAccount",
+  "ClientsPaymentsBankAccount",
+  "PulposAppCommunication",
+  "StoreAgentConfiguration",
+  "StoreAgentAccessToLocation",
+  "StoreAgentFAQ",
+  "StoreAgentDelegationPolicy",
+  "AiConversation",
+  "AssistantConversation",
+  "AssistantMessage",
+  "AssistantMessageAttachment",
+  "GestoPagosCredentials",
+  "ExternalDigitalServiceConfiguration",
+  "ExternalDigitalServicePaymentNotification",
+  "ExternalDigitalService",
+  "OrderDigitalServiceItem",
+  "GestoPagosRequestLog",
+  "Seller",
+  "Promotion",
+  "PromotionClientLimitation",
+  "PromotionPriceListLimitation",
+  "PromotionLocationLimitation",
+  "CartTotalPromotion",
+  "SingleTargetPromotion",
+  "MultiTargetPromotion",
+  "Reconciliation",
+  "ReconciliationMovement",
+  "ReconciliationMovementToPulposTransaction",
+  "ReconciliationSource",
+  "PaymentMethodReconciliationSource",
+  "WhatsAppBusinessCredentials",
+  "PlatformConversation",
+  "PlatformMessage",
+  "PlatformAudio",
+  "BillableAgentConversation",
+  "LoyaltyProgram",
+  "LoyaltyProgramPriceListLimitation",
+  "LoyaltyProgramLocationLimitation",
+  "LoyaltyProgramProductSpecificReward",
+  "LoyaltyProgramCategorySpecificReward",
+  "LoyaltyProgramMovement",
+  "PulposGlobalConfiguration"
+ ]
+}

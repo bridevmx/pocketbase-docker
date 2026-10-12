@@ -1,147 +1,164 @@
-# Análisis del modelo de datos de Pulpos TPV (sin facturación)
+# Análisis profundo del modelo de datos de Pulpos TPV (v2, sin facturación)
 
-Fuente: tráfico del frontend web (`app.pulpos.com`) de una cuenta de prueba nueva, solo lectura/navegación.
-Es inferencia a partir de las respuestas JSON; los nombres de tablas reales pueden diferir.
+Fuentes, de más a menos confiable:
 
-## 1. Arquitectura observada
+1. **Cliente web (JS)**: enums de Prisma, lista de los **156 modelos** con sus columnas exactas (`Prisma.<Modelo>ScalarFieldEnum`) y esquemas zod de validación → `pulpos-model-catalog.md` y `pulpos-data/*.json`.
+2. **Respuestas reales de la API** de una cuenta de prueba, tras crear datos de cada módulo (productos de cada tipo, ventas contado/crédito/mixtas/pendientes, compras, ajustes, traspaso, fabricación, cotización, promoción, lealtad, corte de caja, usuarios).
+3. **Errores de validación** del servidor (zod y errores de negocio), que revelan reglas.
+
+Todo es inferencia sobre el comportamiento observable; los nombres internos del backend pueden diferir. La facturación (CFDI) queda fuera.
+
+> **Correcciones respecto a la v1:** (a) `OrderPayment.cancelsPaymentId` **no** es una reversa de cobro: apunta al pago `CREDIT` que ese pago liquida. (b) Los reembolsos **no** son pagos negativos: tienen sus propias tablas. (c) Producto y "perfil" son dos tablas 1:1 y las variantes viven en el perfil.
+
+---
+
+## 1. Arquitectura
 
 | Aspecto | Hallazgo |
 |---|---|
-| Frontend | Next.js (`/_next/data/...`), SPA/SSR. La app Android es un contenedor del mismo sitio. |
-| API | **tRPC** sobre HTTP: `GET /api/backend/<router>.<procedimiento>?input={"json":...}` (lecturas) y `POST` (mutaciones). Serialización **superjson** (`meta.values` marca `undefined`, fechas, etc.). |
-| Auth | **AWS Cognito** (`cognito-idp.us-east-1`). Login en dos pasos: `auth.getUserByEmail` → `auth.signIn`. `users.openIdSub` = `sub` de Cognito. Proveedores: `PASSWORD`, Google. |
-| IDs | **cuid** (`cmv59...`), generados por el servidor/cliente, texto de 25 chars. Además `userFriendlyId` de 7 caracteres para mostrar (`P3UVPEF`). |
-| Multi-tenant | Toda tabla lleva `accountId`. Un `Account` = un negocio. |
-| Dinero | **Strings decimales** (`"49.98"`) con columna hermana `*Currency` (`"MXN"`). Nunca floats. |
-| Borrado | **Soft delete** universal: `deletedAt`. Además `createdAt/updatedAt` y `userIdCreatedBy` en casi todo. |
-| Idempotencia/offline | `orders.requestId` (UUID del cliente) + `orders.isOffline`. Una venta offline se encola en el cliente y se reenvía con el mismo `requestId`. |
-| Datos de prueba | `isTest` en productos y ventas: la cuenta nueva se siembra con datos demo marcados. |
-| Paginación | `pagination: {pageIndex, pageSize}` → respuesta `{data: [...]}`. |
-| Otros servicios | Stripe/Chargebee (suscripción), HubSpot (chat), Datadog RUM, hCaptcha, WhatsApp Business, Mercado Pago. |
+| Stack | Next.js + **tRPC** (`/api/backend/<router>.<proc>`), **superjson**, **Prisma** sobre **PostgreSQL** (hay columna `tsvector` en `User`). |
+| Auth | AWS Cognito (`User.openIdSub` = `sub`). Proveedores `PASSWORD` y `GOOGLE`. |
+| Multi-tenant | Casi toda tabla lleva `accountId`. **Catálogos globales** con `accountId = null` (impuestos, regímenes fiscales, cliente "Público en General"). |
+| IDs | `cuid` en texto. Además `userFriendlyId` de 7 caracteres (alfabeto sin 0/O/1/I/L) en `Order`, `Quotation` y `Client`. |
+| Folios | `orderNumber`, `purchaseNumber`, `quotationNumber`, `transferNumber`, `stockAdjustmentNumber`, `manufacturingOrderNumber`: consecutivos por cuenta (BigInt). Las ventas además por `OrderSeries`. |
+| Dinero | `Decimal` serializado como string + `*Currency` (hoy solo `MXN`). |
+| Fechas | `createdAt/updatedAt` en todo; **soft delete** `deletedAt` casi universal. `userIdCreatedBy` como auditoría. |
+| Idempotencia | `Order.requestId` (UUID), `Purchase.requestId`. Existe un procedimiento aparte `orders.createFromOfflineOrderSync` con la **misma forma** que `orders.create` → el modo offline encola la venta completa y la reenvía. |
+| Precisión | La API recibe `Decimal` con transformador `Prisma.Decimal`; el cliente calcula totales y el servidor valida. |
+| Analítica | Router `analytics.*` hace agregaciones en servidor: `salesByPeriod/Product/Client/Category/Seller/PaymentMethod`, `inventoryValue`, `inventory`, `stock`, `purchases`, `expenses`. |
+| Unidades | `MEASURE_UNITS` = catálogo SAT completo (cientos de claves) + `enabledUnits` por cuenta; `MeasureUnit` ya trae etiquetas singular/plural. |
 
-## 2. Entidades y relaciones
+## 2. Mapa de dominios (156 modelos)
 
-```mermaid
-erDiagram
-  Account ||--o{ User : tiene
-  Account ||--o{ Location : tiene
-  Account ||--o{ Product : tiene
-  Account ||--o{ Client : "tiene (+ globales)"
-  Account ||--o{ CustomPriceType : tiene
-  Location ||--o{ Cashier : tiene
-  Location ||--o{ ProductStock : "stock por ubicación"
-  Product  ||--o{ ProductStock : tiene
-  Product  ||--o{ ProductPrice : "por tipo de precio y breakpoint"
-  CustomPriceType ||--o{ ProductPrice : define
-  Product  }o--o{ Tax : "M:N"
-  Product  }o--|| Category : pertenece
-  Product  ||--o{ ProductPhoto : tiene
-  Product  ||--o{ ComboItem : "kits"
-  Product  ||--o{ Product : "parentId (variantes)"
-  Order ||--o{ OrderItem : partidas
-  Order ||--o{ Payment : pagos
-  Order ||--|| OrderJournal : bitácora
-  Order }o--|| Client : cliente
-  Order }o--|| Location : sucursal
-  Order }o--|| OrderSeries : serie
-  Payment }o--|| Cashier : caja
-  CashierAudit ||--o{ CashierAuditItem : "por método de pago"
-  Cashier ||--o{ CashierAudit : cortes
-  StockMovement }o--|| Product : producto
-  StockMovement }o--|| Location : ubicación
-```
+Cuenta/config 30 · Catálogo y precios 13 · Inventario 16 · Ventas 40 · Compras y gastos 10 · Caja 4 · Facturación 8 · Canales, WhatsApp, IA y servicios digitales 30 · Conciliación 5. Detalle completo en `pulpos-model-catalog.md`.
 
-### Núcleo (lo que se necesita para un TPV)
+Para un TPV propio **sin** facturación, canales ni IA, el núcleo es de unas **45–50 tablas** (secciones 3 a 8).
 
-**Account** — negocio. Tiene settings en tablas 1:1 separadas por módulo (`stock.getSettings`, `orders.getSettings`, `quotations.getSettings`, `manufacturing.getSettings`, `accountSettings.*`) en vez de un JSON gigante: `allowMovingNegativeStock`, `allowSellingOutOfStock`, `batchStrategy`, `minProfitMargin`/`minProfitMarginPolicy`, `restrictSellingToClientsWithOverdueDebt`, etc. Los *feature flags* (`MANUFACTURING`, `BANK_RECONCILIATIONS`, `WHATSAPP_SALES_CHANNEL`) se exponen en `getAccountFeatures`.
+## 3. Cuenta, ubicaciones, usuarios y seguridad
 
-**User** — `email`, `name`, `surname`, `phoneNumber`, `role` (`ADMIN`…), `isAccountOwner`, `advancedPermissions[]` (permisos finos aparte del rol), `authProviders[]`, `openIdSub`, `defaultPriceTypeId`, `slug`, `tsv` (columna tsvector → **Postgres** con búsqueda full-text).
+- **Account** ← `BusinessProfile` (1:1: nombre, giro `BusinessType`, `typeOfSale` retail/mayoreo, `ticketDetailsId`), `AccountSettings`, `StockSettings`, `OrderSettings`, `QuotationSettings`, `ManufacturingSettings`, `EmailSendingConfiguration`. **Settings por módulo en tablas 1:1**, no un JSON único.
+  - `OrderSettings`: `batchStrategy` (MANUAL/AUTOMATIC), `allowSellingOutOfStock`, `notifyInsufficientStockForSale`, `restrictSellingToClientsWithOverdueDebt`, `minProfitMargin` + `minProfitMarginPolicy` (WARN/BLOCK).
+  - `StockSettings`: `allowMovingNegativeStock`, `notifyMovingNegativeStock`.
+  - `AccountSettings`: `allowPersonalizedPrices`, `defaultClientDebtLimit`, `enabledUnits[]`, métodos de pago permitidos, feature flags (`MANUFACTURING`, `BANK_RECONCILIATIONS`, `WHATSAPP_SALES_CHANNEL`).
+- **Location**: `type` BRANCH | WAREHOUSE, `isDefault`, `defaultPriceTypeId`, `addressId`. No encontré un procedimiento `locations.create` (solo `update`/`delete`); la cuenta de prueba tiene 1 sucursal y 0 almacenes y los planes limitan ambos, así que la creación probablemente pasa por el flujo de plan/add-ons (inferido, no probado).
+- **Cashier**: caja de una sucursal (`locationId`, `orderSeriesId` opcional). **OrderSeries** (`name`, `nextNumber`, `onlyLocation`, `isDefault`).
+- **User**: `role` ADMIN | USER | SUPERADMIN, `isAccountOwner`, `advancedPermissions[]`. Un usuario no-admin recibe **listas de acceso**: `accessBranches`, `accessWarehouses`, `accessCashiers`, `accessPriceTypes` (tablas puente).
+- **Seller** (vendedor): propio (`name/surname`) o enlazado a un `User` (`createFromUser`).
+- **CustomPaymentMethod**: método propio sobre un método base (`method` = p. ej. FOOD_VOUCHER, `allowsIncome`, `allowsSpend`, `hiddenAt`, `reconciliationSourceId`).
+- `PaymentMethod`: CASH, CARD, TRANSFER, CHECK, CREDIT, DEBIT_CARD, PAYMENT_INTERMEDIARY, ELECTRONIC_WALLET, ELECTRONIC_MONEY, SERVICE_CARD, FOOD_VOUCHER.
 
-**Location** — sucursal o almacén: `type: BRANCH | WAREHOUSE`, `isDefault`, `defaultPriceTypeId`, `address`. Tiene `invoicingSettings` propios (omitimos).
+## 4. Catálogo de productos
 
-**Cashier** (caja física/lógica) — `locationId`, `isDefault`, `orderSeriesId`. Una sucursal tiene N cajas.
+**Dos tablas 1:1 con el mismo id**: `ProductProfile` (nombre, slug, descripción, barcode, sku, categoría, marca, `hiddenAt`, `displayInCatalog`, `isSellable`, `isManufactured`, `parentId`, `variantConfig` JSON) y `Product` (`profileId`, `type`, `sellUnit`, `cost`, `costType` NET/GROSS, `isStockable`, `batchesEnabled`, `prescriptionRequired`, `satCategoryCode`). `Product.id == profileId`.
 
-**OrderSeries** — serie/folio de ventas; `onlyLocation` limita a una sucursal. `orderNumber` es consecutivo por serie.
+Tipos (`ProductType`): `PRODUCT`, `SERVICE` (no stockable), `COMBO` (kit).
 
-**Product** (tabla "perfil")
-- `type` (`PRODUCT`, servicio…), `name`, `slug`, `description`, `barcode`, `sku`, `categoryId`, `brandId`.
-- `sellUnit` (enum: `UNIT, KIT, BOX, BAG, METER, CENTIMETER, KILOGRAM, GRAM, LITER, MILLILITER, SERVICE, SQUARE_METER, PIECE`).
-- Costo: `cost` + `costCurrency` + `costType` (`NET`/gross).
-- Flags: `isStockable`, `isSellable`, `isManufactured`, `batchesEnabled`, `prescriptionRequired`, `displayInCatalog`, `hiddenAt`.
-- `parentId` → **variantes** como productos hijos (no hay tabla de variantes); `comboItems` → kits; `satCategoryCode` (clave SAT, solo útil si facturas).
-- `profileId` = id del perfil: producto y "perfil de producto" comparten identidad (existe una capa que permite versionar/duplicar).
+- **Variantes**: el producto "Playera" crea un **perfil padre sin Product** que guarda `variantConfig = [{type:"Talla", values:[CH,M]}]`; cada variante es un `ProductProfile` hijo (`parentId`) **con su propio `Product`**, sku, barcode, costo, precios y stock. Se pueden ocultar (`hiddenAt`), pero al menos una debe quedar visible.
+- **Combos**: `ProductCombination(comboId, comboItemId, quantity)`. El combo tiene precio propio; al venderlo se generan partidas hijas (`OrderItemProduct.inComboId`).
+- **Fabricados**: `isManufactured` + `ManufacturingBlueprintItem(productId, materialId, quantity)` (receta).
+- **Precios**: `CustomPriceType` (lista; una `isDefault` = "Precio Público") + `ProductCustomPrice(productId, customPriceTypeId, price, breakpoint)`. El `breakpoint` implementa precio por volumen ("desde N unidades"); la partida guarda el `priceBreakpoint` aplicado. **Crear una lista crea una `CatalogVariantConfig`** (`path`, `hidden`) para exponerla en la tienda en línea.
+- **Impuestos**: `Tax` global (`type` VAT/IEPS/ISR, `percentage`, `isExempt`, `isWithheld`) con M:N a `Product`.
+- **Otros**: `ProductCategory` (+ foto), `ProductBrand`, `ProductProfilePhoto`→`Image`, `ProductStorage(productId, locationId, placement)` (ubicación física en almacén), `SatCategory`.
+- Reglas: `name` obligatorio; `sku` y `barcode` únicos por cuenta (`SKU_IN_USE`, `BARCODE_IN_USE`); no se borra un producto ya vendido, cotizado, transferido o comprado (`PRODUCT_ALREADY_SOLD_QUOTED_TRANSFERRED_OR_PURCHASED`).
 
-**ProductStock** — una fila por (producto, ubicación): `stockQuantity`, `minStockQuantity`. Se calcula `availableStock = totalStock - committedStock` (apartados/pedidos comprometidos, `committedOrders`).
+## 5. Inventario (el corazón)
 
-**StockMovement** — **ledger append-only**: `previousQuantity`, `currentQuantity`, `locationId`, `productProfileId`, `origin` (`ORDER_CREATE`, ajuste, traspaso, compra…), `originId` (id del documento origen), `discriminatorType/Id` (para lotes), `adjustmentReason`. La cantidad en `ProductStock` es un caché del ledger.
+- **ProductStock(productId, locationId, stockQuantity, minStockQuantity)**: saldo materializado. **Debe existir la fila por ubicación**: un producto stockable creado sin fila hace fallar `startOrder/finishOrder` de fabricación con `Record to update not found`.
+- **Productos con lotes** (`batchesEnabled`): el saldo vive en `ProductBatch(code, expiresAt, fabricatedAt)` + `ProductBatchStock(productBatchId, locationId, stockQuantity)`; **`ProductStock` queda vacío**.
+- **StockMovement = bitácora append-only**: `previousQuantity → currentQuantity`, `locationId`, `productProfileId`, `origin`, `originId` (documento origen), `discriminatorType` (BASIC | BATCH | VARIANT) + `discriminatorId` (el lote), `adjustmentReason`.
 
-**CustomPriceType + ProductPrice** — listas de precios. Hay una `isDefault` ("Precio Público"). `ProductPrice` = (producto, tipo de precio, `breakpoint`, `price`): el `breakpoint` implementa **precios por volumen** ("desde N unidades"). `Client.defaultPriceTypeId`, `Location.defaultPriceTypeId` y `User.defaultPriceTypeId` eligen la lista a aplicar.
+Orígenes observados con datos reales:
 
-**Tax** — catálogo global compartido por todas las cuentas (21 filas): `type` (`VAT`, `ISR`, `IEPS`), `percentage`, `isExempt`, `isWithheld`. Producto↔Tax es M:N.
-
-**Client** — `type` (`GENERAL_PUBLIC` = cliente genérico sembrado y global con `accountId = null`), `name`, `surname`, `phoneNumber`, `email`, `address`, `fiscalProfileId`, `loyaltyPoints`, `totalDebt` (calculado), `aiAgentEnabled`, `lastDebtReminderSentAt`.
-
-**Order** (venta)
-- Cabecera: `userFriendlyId`, `orderNumber`, `orderSeriesId`, `locationId`, `clientId`, `sellerId`, `origin` (`POS`, catálogo en línea, WhatsApp…), `madeAt`.
-- Montos: `subtotal`, `discounts`, `originalTotal`, `total` (+ currency cada uno), `withTaxes`.
-- **Dos máquinas de estado independientes**: `paymentStatus` y `shippingStatus` (ambos `COMPLETED`, …), más `wayOfPayment`, `shippingMethod`.
-- Enlaces: `quotationId` (cotización origen), `invoiceId`, `deliveryAddressId`.
-- Calculado en lectura: `debt` (saldo pendiente), `refunds[]`.
-
-**OrderItem** (`itemsProduct`) — **snapshot** de la partida: copia `name`, `type`, `unitPrice`, `unitCostNet`, `quantity`, `quantityUnit`, `total`, `totalCostNet`, `priceBreakpoint`, `priceType`, `satCategoryCode` y los impuestos aplicados. Así cambiar el producto después no altera ventas pasadas. Guarda **costo** por partida → permite margen real por venta. Soporta `inComboId` (partida dentro de un kit), `discountId`, `prescriptionId`. Los descuentos de carrito van en `itemsCartDiscount`.
-
-**Payment** — **un pago por método**, N por venta (pagos mixtos): `method` (`CASH, CARD, TRANSFER, CREDIT, DEBIT_CARD` o `customPaymentMethodId`), `total`, `change` (cambio), `cashierId`, `madeAt`, `cancelsPaymentId` (**las cancelaciones son un pago negativo que apunta al original**, no se borra), `unifiedDebtPaymentId` (abono a deuda que cubre varias ventas), `loyaltyPointsReward`.
-`CREDIT` = venta a crédito → genera `debt`.
-
-**OrderJournal** — bitácora por venta: `events[]` con `type` (`PRODUCT_DELIVERY`…), `userId`, `locationId`, `createdAt`.
-
-**CashierAudit** (corte de caja) — `status` (`DRAFT` → confirmado), `periodStart`/`periodEnd` (el corte cubre desde el último corte hasta ahora), `cashierId`, `cashIn`, `cashOut`, `comments`. Se crea en borrador con `cashierAudits.prepare`. **CashierAuditItem** = una fila por método de pago: `totalExpected` (calculado del sistema) vs `totalAudited` (contado), con `detail` desglosado: `orderPayment`, `debtPayment`, `refund`, `outlayPayment`, `cashIn`, `cashWidthdrawal`, `movementsInTotal`, `total`. Los movimientos de efectivo manuales (`cashMovements`) son otra tabla.
-
-### Módulos secundarios (se infieren de los routers)
-
-`quotations` (cotizaciones → se convierten en `Order` vía `quotationId`, con `defaultValidity` días), `transfers` (traspasos entre ubicaciones), `stockAdjustments`, `manufacturing` (órdenes de fabricación con materiales), `outlays` (gastos/compras y pagos a proveedores), `providers`, `promotions`, `loyaltyProgram` + monedero, `catalog`/`catalogVariants` (tienda en línea), `reconciliations` (conciliación bancaria), `messagingPlatform`/`whatsapp`/`storeAgent` (agente IA de ventas), `externalDigitalServices` (recargas y servicios).
-
-## 3. Decisiones de normalización clave
-
-1. **Snapshot en la partida** (precio, costo, nombre, impuestos) + referencia viva al producto.
-2. **Stock como ledger** (`StockMovement` con `previous/current` y `origin/originId`) + saldo materializado por (producto, ubicación).
-3. **Pagos separados de la venta**, uno por método, con reversa como pago negativo enlazado; la deuda es derivada (`total - Σpagos`).
-4. **Estados ortogonales** (`paymentStatus` vs `shippingStatus`) en vez de un solo `status`.
-5. **Precios en tabla aparte** por (producto × lista × breakpoint), no como columnas.
-6. **Variantes y kits** reutilizan `Product` (`parentId`, `comboItems`) en lugar de tablas distintas.
-7. **Catálogos globales** (impuestos, unidades, regímenes, cliente "Público en General") con `accountId = null`, y datos del negocio con `accountId`.
-8. **Settings por módulo** en tablas 1:1.
-9. **Dinero**: decimal como string + moneda; todo con soft delete.
-10. **Cliente genérico sembrado** para ventas de mostrador sin cliente, en lugar de `clientId` nulo.
-
-## 4. Propuesta de colecciones para PocketBase (borrador)
-
-Equivalencias directas (PocketBase ya trae `id`, `created`, `updated`):
-
-| PocketBase | Notas |
+| origin | Efecto verificado |
 |---|---|
-| `accounts` | negocio; settings como campos `json` o colecciones 1:1 |
-| `users` (auth) | agregar `account` (relation), `role` (select), `permissions` (json) |
-| `locations` | `type` select BRANCH/WAREHOUSE, `default_price_type` relation |
-| `cashiers`, `order_series` | como arriba |
-| `categories`, `brands` | por cuenta |
-| `products` | `parent` (self-relation), `type`, `sell_unit`, `cost`, `is_stockable`… `taxes` multi-relation |
-| `price_types`, `product_prices` | `breakpoint` number, `price` number |
-| `product_stock` | índice único (product, location) |
-| `stock_movements` | solo crear (reglas: sin update/delete) |
-| `taxes` | global, solo lectura |
-| `clients` | `account` vacío = global; `type` select |
-| `orders`, `order_items`, `payments` | snapshot en `order_items`; `payments.cancels` self-relation |
-| `cashier_audits`, `cashier_audit_items`, `cash_movements` | corte de caja |
+| `PRODUCT_CREATE` | 0 → stock inicial (también por lote) |
+| `PURCHASE_CREATE` | +cantidad comprada (95 → 145) |
+| `ORDER_CREATE` | −cantidad vendida (por lote si aplica) |
+| `ORDER_RETURN` | +devolución (reembolso) |
+| `ORDER_DELETE` | reversa al eliminar venta (solo visto en el enum; no probado) |
+| `STOCK_ADJUSTMENT` | EXIT resta; **COUNT fija el valor absoluto** (133 → 95) |
+| `TRANSFER_SEND` / `TRANSFER_RECEIVE` | −origen al enviar, +destino al recibir (dos movimientos) |
+| `MANUFACTURING_MATERIAL_USE` | −materiales al **iniciar** la orden |
+| `MANUFACTURING_PRODUCTION` | +producto terminado al **finalizar** |
+| `MANUFACTURING_MATERIAL_RETURN` | devolución de material no usado |
+| `PURCHASE_DELETE`, `TRANSFER_DELETE`, `LOCATION_DELETE`, `STOCK_ADJUSTMENT_DELETE`, `ADJUSTMENT_CHANGE_STOCK_TRACKING` | solo en el enum; no probados |
 
-Reglas de acceso: todas las colecciones filtran por `@request.auth.account = account`. Costos y ledger: solo roles con permiso.
-Dinero: guardar como `number` en centavos (entero) o `text` decimal; PocketBase `number` es float, así que **centavos enteros** es lo más seguro.
-Transacciones: una venta debe crear `orders` + `order_items` + `payments` + `stock_movements` + actualizar `product_stock` de forma atómica → usar un hook (`pb_hooks`, JS) o endpoint personalizado con `$app.runInTransaction`.
-Offline: generar `request_id` (UUID) en el cliente y poner índice único para que el reenvío sea idempotente.
+- **Traspaso**: `Transfer(origin, destination, status DRAFT→SENT→RECEIVED)` + `TransferItem(quantitySent, quantityReceived, quantityUnit)` + `TransferItemBatchQuantity` + `TransferEvent(type CREATED|SENT|RECEIVED|UPDATED_WHILE_DRAFT|COMMENT, content)`. Origen y destino pueden ser la misma ubicación.
+- **Ajuste**: `StockAdjustment(type ENTRY|EXIT|COUNT, status DRAFT|COMPLETED, reason, locationId)` + `StockAdjustmentItem(previousQuantity, inputQuantity, unitCost, unitPrice)` + `…BatchQuantity` + `StockAdjustmentEvent`. En borrador no mueve stock; `complete` lo aplica. Razones: CORRECTION, RECOUNT, EXPIRATION, THEFT_OR_LOSS, DETERIORATION, GIFT, MASSIVE_EDITION, PLAN_LIMITATION.
+- **Fabricación**: `ManufacturingOrder(status CREATED→STARTED→FINISHED|CANCELLED, initialQuantity, manufacturedQuantity, startedAt, finishedAt)` + `ManufacturingOrderMaterialItem(materialId, quantity, quantityUnit)` + `ManufacturingOrderEvent(CREATED|STARTED|FINISHED|CANCELLED|COMMENT|USE_MATERIAL_STOCK|RETURN_MATERIAL_STOCK)`. `finishOrder` recibe `manufacturedQuantity` y `returnUnusedMaterials`; `cancelOrder` recibe `returnMaterials`.
+- **Reglas de venta contra stock**: vender más de lo disponible devuelve `InsufficientStock` (409) mientras `allowSellingOutOfStock=false`. El **stock disponible** = total − comprometido (pedidos pendientes, `committedOrders`).
 
-## 5. Lo que falta por confirmar
+## 6. Ventas
 
-- Estructura exacta de: lotes y caducidades, recetas médicas, traspasos, fabricación, compras/gastos, promociones, monedero, reembolsos (las cuentas de prueba no tienen datos de estos módulos).
-- Enumeraciones completas (`paymentStatus`, `shippingStatus`, `origin`, `discriminatorType`, `role`, permisos avanzados).
-- Cómo se resuelve la sincronización offline (cola en IndexedDB vs SQLite en el APK): requiere inspeccionar el JS del cliente o el APK.
-- Reglas de cálculo (impuestos incluidos vs añadidos, redondeo, orden de descuentos).
+**Order** (cabecera) → `OrderItemProduct[]` (+ `OrderItemProductBatchQuantity` por lote) → `OrderPayment[]` → `OrderDebt` (0..1) → `OrderRefund[]` → `OrderJournal` (eventos). Más `OrderItemCartDiscount[]`, `OrderItemProductDiscount`, `OrderDeliveryCost`, `OrderOnlinePayment`, `OrderPaymentNotification`.
+
+- **Estados independientes**: `paymentStatus` (COMPLETED | PENDING | CANCELLED | REFUNDED) y `shippingStatus` (PENDING | COMPLETED | CANCELLED | RETURNED). Una venta a crédito queda `COMPLETED` aunque tenga deuda: **la deuda no es un estado**.
+- `origin`: `POS`, `POS_SAVE_AS_ORDER` (pedido guardado: `payments=[]`, `deliverProducts=false` → `PENDING/PENDING`), `ONLINE_CATALOG`, `DIRECT_INVOICE`. `wayOfPayment`: TO_AGREE_AFTER_PURCHASE, MERCADOPAGO, BANK_TRANSFER, CREDIT, COLLECT_ON_DELIVERY. `shippingMethod`: TO_AGREE_AFTER_PURCHASE, PICKUP, DELIVERY.
+- **Snapshot en la partida**: `name`, `unitPrice`, `unitCostNet`, `totalCostNet`, `quantity`, `quantityUnit`, `priceType` (DEFAULT|PERSONALIZED), `priceBreakpoint`, `customPriceTypeId`, `satCategoryCode`, `type` + impuestos aplicados (M:N a `Tax`) + `discountId`. Con eso la analítica calcula margen sin tocar el catálogo.
+- **Precio personalizado** (`PERSONALIZED`) permitido por `allowPersonalizedPrices`; vender bajo costo solo se bloquea si `minProfitMargin` está configurado (probado: sin margen mínimo, se permitió vender a $5 un producto con costo $8).
+- **Pagos**: una fila por método; mixtos permitidos (`CASH 100 + CREDIT 56`). Campos: `method`, `customPaymentMethodId`, `total`, `change`, `cashierId`, `madeAt`, `loyaltyPointsReward`, `unifiedDebtPaymentId`, `orderPaymentNotificationId`, `cancelsPaymentId`.
+- **Crédito (modelo exacto)**, verificado:
+  1. Se crea `OrderDebt(originalDebt = total de la venta, currentDebt, dueDate, paymentIdCredit)`.
+  2. El pago `CREDIT` guarda como `total` **la deuda viva** y **se decrementa** con cada abono.
+  3. Cada abono (incluidos los pagos iniciales de la misma venta) es un `OrderPayment` con `cancelsPaymentId = id del pago CREDIT`. Ejemplo real: venta 156 = `CASH 100` + `CREDIT 56`; `originalDebt 156 → 56`; abono `CARD 20` → `currentDebt 36` y `CREDIT.total 36`.
+  4. `UnifiedDebtPayment` agruparía un abono que cubre varias ventas (inferido por nombre y por `payOrdersDebt`; no probado); `ClientDebtLimit(clientId, limit/useDefaultLimit)` limita el crédito por cliente (default en `AccountSettings`). `Client.totalDebt` es derivado.
+- **Lealtad** (`LoyaltyProgram`: `rewardPercentage`, `minCartTotalLimitation`, recompensas por producto/categoría, limitaciones por lista de precios y ubicación): el puntaje se otorga **por pago**, no por venta (`OrderPayment.loyaltyPointsReward = pago × %`). `LoyaltyProgramMovement(previousQuantity, currentQuantity, origin, orderId)` es otro libro mayor (ORDER_EARN, ORDER_SPEND, ORDER_PAYMENT_EARN, reversas, ADJUSTMENT). `Client.loyaltyPoints` es el saldo.
+- **Reembolso** (`orders.refundItems`): `OrderRefund(reason, totalRefunded, subtotalRefunded, cancelledDebt, orderSnapshot)` + `OrderItemRefund(orderItemId, quantityRefunded)` + `…BatchQuantity` + `OrderRefundPayment(method, totalRefunded, cashierId, customPaymentMethodId)`. Genera `ORDER_RETURN` en inventario. **Si `cashierId` va nulo, el reembolso no cuenta en el corte de caja** (observado: `refund = 0` en el corte). `paymentStatus` de la venta no cambió con un reembolso parcial.
+- **Cancelación** (`orders.cancel`): solo si el pago está `PENDING` (`Cannot cancel an order whose payment is not pending`). Una venta cobrada se **reembolsa** o se **elimina** (`deleteMany`, con reversa de stock `ORDER_DELETE`).
+- `completeShipping` exige fecha de vencimiento si la venta no está pagada completa (crea deuda).
+- **Cotizaciones**: `Quotation(status CREATED|SOLD, validFrom, expiresAt, clientNote, subtotal, withTaxes, sellerId, customPriceTypeId)` + `QuotationItem` + `QuotationManualEntryItem` (partida libre con costo e impuestos, sin producto) + descuentos + `QuotationJournal`. Cada partida es **producto o entrada manual** (`Quotation item must have either product or manual entry item`). Al vender, `Order.quotationId` enlaza el origen.
+- **Promociones**: `Promotion(type CART_TOTAL|SINGLE_TARGET|MULTI_TARGET|MULTI_TARGET_ADVANCED, application MANUAL|AUTOMATIC, validFrom/Until, restrictToClients, daysOfWeekLimitation[])` con subtipos (`CartTotalPromotion`, `SingleTargetPromotion`, `MultiTargetPromotion`: 2x1, 3x2, 2ª al 50%, etc.) y limitaciones por cliente, lista de precios y ubicación. `OrderItemProductDiscount.promotionId` registra cuál se aplicó.
+- **Prescription** (farmacia): receta ligada a la venta (`prescriptionNumber`, `prescriberName`, `prescriberLicence`).
+
+## 7. Compras y gastos ("outlays")
+
+- **Purchase** y **Expense** son modelos separados pero se listan unificados (`outlays.getOutlays`, `type` PURCHASE|EXPENSE). Estado **derivado**: `DRAFT`, `HAS_DEBT`, `PAID`.
+- `Purchase(status DRAFT|COMPLETED, providerId, locationId, madeAt, total, folio, notes, requestId)` + `PurchaseItem(quantity, quantityUnit, sellUnitFactor, netUnitCost, unitDiscountPercentage)` + `PurchaseItemProductBatchQuantity` (crea `ProductBatch` al comprar productos con lote) + impuestos por partida.
+- **Pago o deuda al completar**: `payment` es *o* `{madeAt,total,cashierId?}` (paga ahora, genera `CashMovement` tipo `PURCHASE_PAYMENT` si sale de caja) *o* `{dueDate,totalDebt}` (crea `PurchaseDebt`). `DRAFT` no lleva pago. Pagos posteriores: `PurchasePayment`.
+- `Expense(concept, madeAt, total, locationId, providerId?)` + `ExpensePayment` + `ExpenseDebt` (columnas del catálogo). **No pude crear un gasto** por API (la validación es una unión opaca), así que su flujo se asume análogo al de compras pero sin confirmar.
+- `Provider(name, contactName, contactPhone, contactEmail)`.
+- Compra completada → movimiento `PURCHASE_CREATE`. **No verificado** si actualiza `Product.cost` (la compra de prueba usó el mismo costo que ya tenía el producto).
+
+## 8. Caja
+
+- **CashMovement(type, amount, details, cashierId, userId)**: `type` = `MANUAL_MOVEMENT` (entrada positiva, retiro **negativo**), `PURCHASE_PAYMENT`, `EXPENSE_PAYMENT`.
+- **CashierAudit** (corte) en 2 pasos: `prepare` crea un **borrador** con `periodStart` = último corte (o 1970 en el primero) y `periodEnd` = ahora; `finish` lo cierra (`status` DRAFT → COMPLETED).
+- **CashierAuditItem** por método: `totalExpected` (calculado) vs `totalAudited` (contado) + `detail`:
+
+  `orderPayment` + `debtPayment` + `refund` + `outlayPayment` (negativo) + `movementsInTotal` (+ `cashWidthdrawal` negativo) = `total`.
+
+  Verificado: CASH esperado 208 = ventas 58 + abonos 100 + entradas de caja 500 − pago de compra 400 − retiro 50. La deuda pagada con efectivo en el momento de la venta cuenta como `debtPayment`.
+
+## 9. Clientes
+
+`Client(type GENERAL_PUBLIC | ACCOUNT_CLIENT, name, surname, phoneNumber (+52…), email, addressId, fiscalProfileId, defaultPriceTypeId, loyaltyPoints, aiAgentEnabled, lastDebtReminderSentAt)`. El **cliente "Público en General"** es global (sin `accountId`) y evita `clientId` nulo en ventas de mostrador. Portal de clientes y notificaciones de pago (`OrderPaymentNotification` PENDING/ACCEPTED/REJECTED) permiten que el cliente reporte un abono.
+
+## 10. Canales y otros (resumen)
+
+Catálogo en línea (`Catalog`, `CatalogConfiguration`, banners, fotos, `CatalogVariantConfig` por lista de precios, `LocationStockVisibilityToCatalog`, pagos Mercado Pago), WhatsApp (`WhatsAppBusinessCredentials`, `PlatformConversation/Message/Audio`), agente IA (`StoreAgent*`, `AiConversation`), asistente de soporte, servicios digitales/recargas (`ExternalDigitalService*`, `OrderDigitalServiceItem`, GestoPagos), conciliación bancaria (`Reconciliation*`, fuentes BANK/DIGITAL_BANK/CREDIT_CARD ligadas a métodos de pago). Detalle de columnas en el catálogo.
+
+## 11. Decisiones de normalización (resumen)
+
+1. Producto = perfil + producto 1:1; variantes como perfiles hijos.
+2. Dos **libros mayores** append-only (stock y lealtad) + saldo materializado.
+3. **Snapshot** en partidas (precio, costo, nombre, impuestos).
+4. Pagos 1:N por método; crédito = deuda + pagos que "cancelan" el pago CREDIT; **reembolsos en tablas propias**.
+5. Estados ortogonales de pago y envío; deuda derivada.
+6. Precios en tabla por (producto × lista × breakpoint).
+7. Catálogos globales con `accountId` nulo.
+8. Settings por módulo 1:1.
+9. Eventos (`*Event`, `OrderJournal`) para trazabilidad de documentos con ciclo de vida.
+10. Estado derivado (deuda, saldo, `availableStock`, `PAID/HAS_DEBT`) calculado, no almacenado.
+
+## 12. Procedimientos de la API (referencia de flujos)
+
+`orders`: create, createFromOfflineOrderSync, addPayments, payOrderDebt, payOrdersDebt, refundItems, cancel, completeShipping, setShippingMethod, assignClient, assignSeller, editNotes, createComment, updateDueDate, deleteMany, byId, getJournal · `products`: create, updatePrice, bulkUpdateVat, deleteMany, upsertManyFromImport, byId, getStockById, getLastStockMovementsForProduct (máx. 10) · `purchases`/`expenses`: create, update, byId · `stockAdjustments`: create, complete, delete · `transfers`: create, send, receive, update, delete · `manufacturing`: createOrder, startOrder, finishOrder, cancelOrder · `cashierAudits`: prepare, finish, createCashMovement, deleteCashMovement · `quotations`, `promotions` (create/activate/end/delete), `loyaltyProgram`, `clients` (upsertWithFiscalData, import, updateDebtLimit, sendClientDebtReminder), `users`, `sellers`, `providers`, `analytics.*`.
+
+## 13. Pendiente por confirmar
+
+- Fórmulas exactas: impuestos incluidos vs añadidos, redondeo, orden de descuentos y cálculo de `minProfitMargin`.
+- Cálculo del costo del producto tras una compra (último costo vs promedio).
+- Reglas de `batchStrategy=AUTOMATIC` (FEFO) y cómo se reparte `OrderItemProductBatchQuantity`.
+- Conversión cotización → venta, `payOrdersDebt`/`UnifiedDebtPayment`, cancelaciones de compras y traspasos.
+- Esquema de sincronización offline: solo se confirmó que `createFromOfflineOrderSync` valida la misma forma que `orders.create`; no se vio la cola local ni cómo se resuelven conflictos.
+- Columnas sin tipo en el catálogo (65 modelos): se deducen de muestras y se completarán con más capturas.

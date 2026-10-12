@@ -1,0 +1,775 @@
+{
+ "State": {},
+ "AccountSubscriptionStatus": {},
+ "Account": {
+  "id": "cuid",
+  "chargebeeSubscriptionId": "string",
+  "chargebeeCustomerId": "string",
+  "hubSpotContactId": "string",
+  "createdAt": "datetime",
+  "updatedAt": "datetime"
+ },
+ "OnboardingStatus": {
+  "id": "cuid",
+  "createdAt": "datetime",
+  "updatedAt": "datetime",
+  "accountId": "cuid"
+ },
+ "User": {},
+ "ResellerProfile": {},
+ "BusinessProfile": {
+  "id": "cuid",
+  "createdAt": "datetime",
+  "updatedAt": "datetime",
+  "accountId": "cuid",
+  "businessName": "string",
+  "businessType": "enum:BusinessType",
+  "businessTypeCustom": "string?",
+  "avgMonthlyBilling": "enum:AvgMonthlyBilling",
+  "typeOfSale": "enum:TypeOfSale?",
+  "fiscalCode": "string?",
+  "numberOfStores": "decimal"
+ },
+ "Location": {},
+ "TicketDetails": {
+  "header": "string?",
+  "footer": "string?",
+  "printOnSale": "boolean",
+  "printOnCounterOrder": "boolean",
+  "printDuplicate": "boolean",
+  "printingMode": "enum:PrintingMode"
+ },
+ "FiscalProfile": {},
+ "SelfInvoiceProfile": {
+  "id": "cuid",
+  "createdAt": "datetime",
+  "updatedAt": "datetime"
+ },
+ "ProductCategory": {
+  "id": "cuid",
+  "name": "string",
+  "displayInCatalog": "boolean",
+  "createdAt": "datetime",
+  "updatedAt": "datetime",
+  "accountId": "cuid"
+ },
+ "ProductBrand": {
+  "id": "cuid",
+  "createdAt": "datetime",
+  "updatedAt": "datetime",
+  "accountId": "cuid",
+  "name": "string"
+ },
+ "CustomPriceType": {
+  "id": "cuid",
+  "createdAt": "datetime",
+  "updatedAt": "datetime",
+  "accountId": "cuid",
+  "userIdCreatedBy": "cuid",
+  "name": "string"
+ },
+ "ProductCustomPrice": {
+  "id": "cuid",
+  "price": "decimal",
+  "priceCurrency": "enum:Currency",
+  "breakpoint": "decimal",
+  "createdAt": "datetime",
+  "updatedAt": "datetime",
+  "accountId": "cuid"
+ },
+ "ProductStock": {
+  "id": "cuid",
+  "accountId": "cuid",
+  "createdAt": "datetime",
+  "updatedAt": "datetime"
+ },
+ "ProductStorage": {
+  "accountId": "cuid",
+  "createdAt": "datetime",
+  "updatedAt": "datetime"
+ },
+ "Product": {},
+ "ProductProfile": {},
+ "ProductCombination": {
+  "comboId": "cuid",
+  "comboItemId": "cuid",
+  "quantity": "decimal"
+ },
+ "ManufacturingBlueprintItem": {},
+ "Tax": {
+  "id": "cuid",
+  "percentage": "number",
+  "isExempt": "boolean",
+  "createdAt": "datetime",
+  "updatedAt": "datetime"
+ },
+ "ProductBatchStock": {
+  "id": "cuid",
+  "createdAt": "datetime",
+  "updatedAt": "datetime",
+  "accountId": "cuid"
+ },
+ "ProductBatch": {
+  "id": "cuid",
+  "createdAt": "datetime",
+  "updatedAt": "datetime",
+  "accountId": "cuid",
+  "userIdCreatedBy": "cuid"
+ },
+ "StockMovement": {},
+ "CustomPaymentMethod": {
+  "id": "cuid",
+  "createdAt": "datetime",
+  "updatedAt": "datetime",
+  "accountId": "cuid",
+  "name": "string"
+ },
+ "OrderPayment": {
+  "id": "cuid",
+  "madeAt": "datetime",
+  "createdAt": "datetime",
+  "updatedAt": "datetime",
+  "deletedAt": "datetime?",
+  "userIdCreatedBy": "cuid",
+  "orderId": "cuid",
+  "method": "enum:PaymentMethod",
+  "totalCurrency": "enum:Currency",
+  "cashierId": "cuid",
+  "customPaymentMethodId": "cuid?"
+ },
+ "OrderPaymentNotification": {
+  "id": "cuid",
+  "accountId": "cuid",
+  "createdAt": "datetime",
+  "updatedAt": "datetime"
+ },
+ "UnifiedDebtPayment": {
+  "id": "cuid",
+  "createdAt": "datetime",
+  "updatedAt": "datetime",
+  "accountId": "cuid",
+  "userIdCreatedBy": "cuid"
+ },
+ "OrderOnlinePayment": {},
+ "OrderItemProductBatchQuantity": {
+  "quantity": "decimal",
+  "productBatchId": "cuid",
+  "orderItemProductId": "cuid"
+ },
+ "OrderItemProduct": {},
+ "OrderDeliveryCost": {
+  "id": "cuid",
+  "createdAt": "datetime",
+  "updatedAt": "datetime",
+  "accountId": "cuid"
+ },
+ "OrderItemProductDiscount": {
+  "id": "cuid",
+  "createdAt": "datetime",
+  "updatedAt": "datetime",
+  "title": "string?",
+  "promotionId": "cuid?",
+  "percentage": "number",
+  "type": "enum:CartDiscountType"
+ },
+ "OrderItemCartDiscount": {
+  "id": "cuid",
+  "createdAt": "datetime",
+  "updatedAt": "datetime",
+  "orderId": "cuid",
+  "title": "string?",
+  "promotionId": "cuid?",
+  "loyaltyPointsUsed": "decimal?",
+  "type": "enum:CartDiscountType",
+  "amount": "decimal",
+  "amountCurrency": "enum:Currency"
+ },
+ "Order": {
+  "id": "cuid",
+  "userFriendlyId": "string",
+  "accountId": "cuid",
+  "userIdCreatedBy": "cuid",
+  "sellerId": "cuid?",
+  "orderNumber": "bigint",
+  "paymentStatus": "enum:OrderPaymentStatus",
+  "shippingStatus": "enum:OrderShippingStatus",
+  "origin": "enum:OrderOrigin",
+  "subtotal": "decimal",
+  "subtotalCurrency": "enum:Currency",
+  "discounts": "decimal",
+  "discountsCurrency": "enum:Currency",
+  "total": "decimal",
+  "totalCurrency": "enum:Currency",
+  "createdAt": "datetime",
+  "updatedAt": "datetime",
+  "clientId": "cuid?",
+  "customPriceTypeId": "string",
+  "notes": "string?"
+ },
+ "OrderSeries": {
+  "id": "cuid",
+  "accountId": "cuid",
+  "createdAt": "datetime",
+  "updatedAt": "datetime",
+  "label": "string?",
+  "nextNumber": "bigint",
+  "name": "string"
+ },
+ "OrderRefund": {},
+ "OrderItemRefundBatchQuantity": {},
+ "OrderItemRefund": {
+  "id": "cuid",
+  "createdAt": "datetime",
+  "updatedAt": "datetime"
+ },
+ "OrderRefundPayment": {
+  "id": "cuid",
+  "method": "enum:PaymentMethod",
+  "totalCurrency": "enum:Currency",
+  "cashierId": "cuid",
+  "createdAt": "datetime",
+  "updatedAt": "datetime",
+  "customPaymentMethodId": "cuid?"
+ },
+ "OrderDebt": {},
+ "OrderJournal": {
+  "id": "cuid",
+  "createdAt": "datetime",
+  "updatedAt": "datetime",
+  "accountId": "cuid",
+  "events": "json"
+ },
+ "QuotationJournal": {
+  "id": "cuid",
+  "createdAt": "datetime",
+  "updatedAt": "datetime",
+  "accountId": "cuid",
+  "events": "json"
+ },
+ "SatCategory": {},
+ "MeasureUnit": {},
+ "Purchase": {
+  "id": "cuid",
+  "createdAt": "datetime",
+  "updatedAt": "datetime",
+  "purchaseNumber": "bigint",
+  "locationId": "cuid",
+  "accountId": "cuid",
+  "userIdCreatedBy": "cuid",
+  "madeAt": "datetime",
+  "totalCurrency": "enum:Currency",
+  "status": "enum:PurchaseStatus",
+  "providerId": "cuid?",
+  "deletedAt": "datetime?",
+  "notes": "string?",
+  "folio": "string?",
+  "requestId": "string"
+ },
+ "PurchaseDebt": {
+  "id": "cuid",
+  "purchaseId": "cuid",
+  "currentDebt": "decimal",
+  "currency": "enum:Currency",
+  "createdAt": "datetime",
+  "updatedAt": "datetime",
+  "accountId": "cuid"
+ },
+ "PurchasePayment": {
+  "id": "cuid",
+  "purchaseId": "cuid",
+  "madeAt": "datetime",
+  "total": "decimal",
+  "totalCurrency": "enum:Currency",
+  "cashMovementId": "cuid?",
+  "createdAt": "datetime",
+  "updatedAt": "datetime",
+  "userIdCreatedBy": "cuid",
+  "method": "enum:PaymentMethod",
+  "customPaymentMethodId": "cuid?"
+ },
+ "PurchaseItemProductBatchQuantity": {
+  "code": "string",
+  "expiresAt": "datetime",
+  "fabricatedAt": "datetime?",
+  "productBatchId": "cuid"
+ },
+ "PurchaseItem": {
+  "quantity": "decimal",
+  "sellUnitFactor": "decimal",
+  "netUnitCost": "decimal",
+  "costCurrency": "enum:Currency",
+  "unitDiscountPercentage": "decimal",
+  "totalCurrency": "enum:Currency"
+ },
+ "Expense": {
+  "id": "cuid",
+  "createdAt": "datetime",
+  "updatedAt": "datetime",
+  "accountId": "cuid",
+  "userIdCreatedBy": "cuid",
+  "madeAt": "datetime",
+  "totalCurrency": "enum:Currency",
+  "locationId": "cuid",
+  "providerId": "cuid?",
+  "deletedAt": "datetime?",
+  "notes": "string?",
+  "folio": "string?"
+ },
+ "ExpensePayment": {
+  "id": "cuid",
+  "createdAt": "datetime",
+  "updatedAt": "datetime",
+  "userIdCreatedBy": "cuid",
+  "madeAt": "datetime",
+  "totalCurrency": "enum:Currency",
+  "method": "enum:PaymentMethod",
+  "customPaymentMethodId": "cuid?"
+ },
+ "ExpenseDebt": {
+  "id": "cuid",
+  "createdAt": "datetime",
+  "updatedAt": "datetime",
+  "accountId": "cuid"
+ },
+ "Provider": {
+  "id": "cuid",
+  "accountId": "cuid",
+  "createdAt": "datetime",
+  "updatedAt": "datetime",
+  "userIdCreatedBy": "cuid",
+  "name": "string",
+  "contactName": "string?"
+ },
+ "Cashier": {
+  "id": "cuid",
+  "createdAt": "datetime",
+  "updatedAt": "datetime",
+  "accountId": "cuid",
+  "name": "string"
+ },
+ "CashierAudit": {
+  "id": "cuid",
+  "cashIn": "decimal",
+  "cashInCurrency": "enum:Currency",
+  "cashOut": "decimal",
+  "cashOutCurrency": "enum:Currency",
+  "comments": "string?",
+  "cashierId": "cuid"
+ },
+ "CashierAuditItem": {
+  "id": "cuid",
+  "method": "enum:PaymentMethod",
+  "totalAudited": "decimal",
+  "totalAuditedCurrency": "enum:Currency",
+  "customPaymentMethodId": "cuid?"
+ },
+ "CashMovement": {},
+ "Address": {
+  "streetAddress": "string?",
+  "streetNumber": "string?",
+  "unitNumber": "string?",
+  "postalCode": "string?",
+  "neighbourhood": "string?",
+  "district": "string?",
+  "city": "string?",
+  "stateCode": "string?"
+ },
+ "FiscalRegime": {
+  "id": "cuid",
+  "createdAt": "datetime",
+  "updatedAt": "datetime"
+ },
+ "FiscalUseCase": {
+  "id": "cuid",
+  "createdAt": "datetime",
+  "updatedAt": "datetime"
+ },
+ "Invoice": {},
+ "InvoiceTypeToSeries": {},
+ "PulposSubscriptionInvoice": {
+  "id": "cuid",
+  "createdAt": "datetime",
+  "accountId": "cuid"
+ },
+ "ClientDebtLimit": {},
+ "Client": {},
+ "Image": {},
+ "File": {
+  "id": "cuid",
+  "fileName": "string",
+  "mimeType": "string",
+  "bucket": "string",
+  "key": "string",
+  "storagePath": "string",
+  "sizeBytes": "number",
+  "status": "enum:FileStatus",
+  "url": "string",
+  "access": "enum:FileAccess"
+ },
+ "OutlayInvoiceFile": {
+  "id": "cuid",
+  "createdAt": "datetime",
+  "updatedAt": "datetime",
+  "accountId": "cuid"
+ },
+ "StoreAgentKnowledgeFile": {
+  "id": "cuid",
+  "createdAt": "datetime",
+  "updatedAt": "datetime",
+  "accountId": "cuid"
+ },
+ "AccountSettings": {
+  "allowPersonalizedPrices": "boolean",
+  "whiteLabelBranding": "boolean",
+  "allowedPaymentMethods": "enum:PaymentMethod",
+  "defaultClientDebtLimit": "decimal?",
+  "showClientsPortalURLOnTickets": "boolean",
+  "showClientsPortalURLOnPDFs": "boolean"
+ },
+ "ManufacturingSettings": {},
+ "StockSettings": {},
+ "QuotationSettings": {
+  "breakdownTaxesInQuotations": "boolean",
+  "notifyInsufficientStockForQuotation": "boolean",
+  "quotationsFixedNote": "string?",
+  "defaultValidity": "decimal?"
+ },
+ "OrderSettings": {
+  "batchStrategy": "enum:SettingBatchStrategy",
+  "allowSellingOutOfStock": "boolean",
+  "notifyInsufficientStockForSale": "boolean",
+  "restrictSellingToClientsWithOverdueDebt": "boolean",
+  "minProfitMargin": "decimal?",
+  "minProfitMarginPolicy": "enum:MinProfitMarginPolicy"
+ },
+ "UpgradePromotion": {},
+ "NativeReview": {},
+ "PulposAppSuggestion": {
+  "id": "string",
+  "createdAt": "datetime",
+  "content": "string",
+  "accountId": "cuid"
+ },
+ "InvoicingSettings": {},
+ "EmailSendingConfiguration": {},
+ "ProductProfilePhoto": {
+  "createdAt": "datetime",
+  "updatedAt": "datetime",
+  "accountId": "cuid"
+ },
+ "Logo": {
+  "id": "cuid",
+  "createdAt": "datetime",
+  "updatedAt": "datetime",
+  "accountId": "cuid"
+ },
+ "ProductCategoryPhoto": {
+  "id": "cuid",
+  "createdAt": "datetime",
+  "updatedAt": "datetime",
+  "accountId": "cuid"
+ },
+ "Quotation": {
+  "id": "cuid",
+  "createdAt": "datetime",
+  "updatedAt": "datetime",
+  "quotationNumber": "bigint",
+  "accountId": "cuid",
+  "userIdCreatedBy": "cuid",
+  "validFrom": "datetime?",
+  "expiresAt": "datetime?",
+  "subtotalCurrency": "enum:Currency",
+  "status": "enum:QuotationStatus",
+  "clientId": "cuid?",
+  "clientNote": "string",
+  "locationId": "cuid?",
+  "withTaxes": "boolean"
+ },
+ "QuotationItem": {
+  "quantity": "decimal",
+  "sellPrice": "decimal",
+  "sellPriceCurrency": "enum:Currency",
+  "priceBreakpoint": "decimal",
+  "total": "decimal",
+  "totalCurrency": "enum:Currency",
+  "type": "enum:ProductType",
+  "inComboId": "string?",
+  "priceType": "enum:QuotationItemPriceType",
+  "discountId": "string?"
+ },
+ "QuotationManualEntryItem": {
+  "id": "cuid",
+  "createdAt": "datetime",
+  "updatedAt": "datetime"
+ },
+ "QuotationItemDiscount": {
+  "id": "cuid",
+  "createdAt": "datetime",
+  "updatedAt": "datetime",
+  "title": "string?",
+  "promotionId": "cuid?",
+  "percentage": "number",
+  "type": "enum:CartDiscountType"
+ },
+ "QuotationCartDiscount": {
+  "id": "cuid",
+  "createdAt": "datetime",
+  "updatedAt": "datetime",
+  "title": "string?",
+  "promotionId": "cuid?",
+  "type": "enum:CartDiscountType",
+  "amount": "decimal",
+  "amountCurrency": "enum:Currency"
+ },
+ "Catalog": {
+  "id": "cuid",
+  "createdAt": "datetime",
+  "updatedAt": "datetime",
+  "accountId": "cuid"
+ },
+ "CatalogConfiguration": {},
+ "LocationStockVisibilityToCatalog": {},
+ "CatalogOrderShippingConfiguration": {
+  "shippingMethods": "enum:OrderShippingMethod",
+  "pickUpInstructions": "string",
+  "deliveryInstructions": "string",
+  "deliveryDefaultPrice": "decimal",
+  "agreedAfterPurchaseInstructions": "string"
+ },
+ "CatalogOrderPaymentConfiguration": {
+  "wayOfPayments": "enum:OrderWayOfPayment",
+  "bankTransferInstructions": "string",
+  "agreedAfterPurchaseInstructions": "string",
+  "creditInstructions": "string",
+  "collectOnDeliveryInstructions": "string"
+ },
+ "MercadoPagoCredentials": {
+  "id": "cuid",
+  "createdAt": "datetime",
+  "updatedAt": "datetime",
+  "accountId": "cuid"
+ },
+ "CatalogHomePagePersonalization": {
+  "isActive": "boolean",
+  "showHeroPhoto": "boolean",
+  "title": "string?",
+  "mainButtonText": "string?"
+ },
+ "CatalogPhoto": {
+  "id": "cuid",
+  "createdAt": "datetime",
+  "updatedAt": "datetime",
+  "accountId": "cuid"
+ },
+ "CatalogBanner": {
+  "id": "cuid",
+  "createdAt": "datetime",
+  "updatedAt": "datetime",
+  "accountId": "cuid"
+ },
+ "CatalogVariantConfig": {
+  "id": "cuid",
+  "createdAt": "datetime",
+  "updatedAt": "datetime",
+  "accountId": "cuid"
+ },
+ "Prescription": {
+  "id": "cuid",
+  "prescriptionNumber": "bigint",
+  "prescriptionCode": "string?",
+  "prescribedAt": "datetime?",
+  "prescriberLicence": "string",
+  "prescriberName": "string",
+  "additionalInformation": "string?",
+  "createdAt": "datetime",
+  "updatedAt": "datetime",
+  "accountId": "cuid",
+  "userIdCreatedBy": "cuid"
+ },
+ "GlobalInvoice": {
+  "periodStart": "datetime",
+  "periodEnd": "datetime",
+  "grouping": "enum:SettingGlobalInvoiceGrouping",
+  "year": "number",
+  "month": "number",
+  "monthPeriod": "number",
+  "locationId": "cuid"
+ },
+ "Transfer": {
+  "id": "cuid",
+  "createdAt": "datetime",
+  "updatedAt": "datetime",
+  "accountId": "cuid"
+ },
+ "TransferItem": {},
+ "TransferItemBatchQuantity": {
+  "id": "cuid",
+  "createdAt": "datetime",
+  "updatedAt": "datetime",
+  "productBatchId": "cuid",
+  "quantitySent": "decimal",
+  "quantityReceived": "decimal"
+ },
+ "TransferEvent": {
+  "id": "string",
+  "createdAt": "datetime",
+  "content": "string"
+ },
+ "StockAdjustment": {
+  "id": "cuid",
+  "createdAt": "datetime",
+  "updatedAt": "datetime",
+  "deletedAt": "datetime?",
+  "accountId": "cuid",
+  "locationId": "cuid",
+  "userIdCreatedBy": "cuid",
+  "status": "enum:PurchaseStatus",
+  "notes": "string?"
+ },
+ "StockAdjustmentItem": {},
+ "StockAdjustmentItemBatchQuantity": {
+  "productBatchId": "cuid",
+  "code": "string",
+  "expiresAt": "datetime",
+  "fabricatedAt": "datetime?",
+  "inputQuantity": "decimal?"
+ },
+ "StockAdjustmentEvent": {
+  "id": "string",
+  "createdAt": "datetime",
+  "content": "string",
+  "accountId": "cuid"
+ },
+ "ManufacturingOrder": {},
+ "ManufacturingOrderMaterialItem": {},
+ "ManufacturingOrderEvent": {
+  "id": "string",
+  "createdAt": "datetime",
+  "content": "string"
+ },
+ "AccountAffiliation": {},
+ "AffiliationPayment": {},
+ "UserBankAccount": {
+  "accountHolder": "string",
+  "accountNumber": "string",
+  "routingNumber": "string",
+  "bankName": "string"
+ },
+ "ClientsPaymentsBankAccount": {
+  "id": "cuid",
+  "accountId": "cuid",
+  "createdAt": "datetime",
+  "updatedAt": "datetime",
+  "routingNumber": "string",
+  "accountHolder": "string",
+  "bankName": "string",
+  "accountNumber": "string",
+  "comments": "string"
+ },
+ "PulposAppCommunication": {
+  "id": "string",
+  "type": "enum:PulposAppCommunicationType",
+  "title": "string",
+  "subtitle": "string",
+  "startDate": "datetime",
+  "endDate": "datetime?",
+  "appCommunicationNumber": "number"
+ },
+ "StoreAgentConfiguration": {},
+ "StoreAgentAccessToLocation": {},
+ "StoreAgentFAQ": {},
+ "StoreAgentDelegationPolicy": {},
+ "AiConversation": {
+  "id": "cuid",
+  "createdAt": "datetime",
+  "updatedAt": "datetime",
+  "accountId": "cuid"
+ },
+ "AssistantConversation": {},
+ "AssistantMessage": {},
+ "AssistantMessageAttachment": {
+  "id": "cuid",
+  "createdAt": "datetime",
+  "updatedAt": "datetime",
+  "accountId": "cuid"
+ },
+ "GestoPagosCredentials": {},
+ "ExternalDigitalServiceConfiguration": {},
+ "ExternalDigitalServicePaymentNotification": {
+  "amount": "number",
+  "currency": "enum:Currency",
+  "bankAccountId": "string",
+  "transferMedium": "string",
+  "transferReference": "string"
+ },
+ "ExternalDigitalService": {},
+ "OrderDigitalServiceItem": {},
+ "GestoPagosRequestLog": {},
+ "Seller": {
+  "id": "cuid",
+  "accountId": "cuid",
+  "createdAt": "datetime",
+  "updatedAt": "datetime",
+  "name": "string"
+ },
+ "Promotion": {},
+ "PromotionClientLimitation": {},
+ "PromotionPriceListLimitation": {},
+ "PromotionLocationLimitation": {},
+ "CartTotalPromotion": {},
+ "SingleTargetPromotion": {},
+ "MultiTargetPromotion": {},
+ "Reconciliation": {
+  "id": "cuid",
+  "createdAt": "datetime",
+  "updatedAt": "datetime",
+  "accountId": "cuid"
+ },
+ "ReconciliationMovement": {},
+ "ReconciliationMovementToPulposTransaction": {
+  "createdAt": "datetime",
+  "updatedAt": "datetime",
+  "accountId": "cuid"
+ },
+ "ReconciliationSource": {
+  "id": "cuid",
+  "name": "string",
+  "deletedAt": "datetime?",
+  "createdAt": "datetime",
+  "updatedAt": "datetime",
+  "type": "string",
+  "accountId": "cuid"
+ },
+ "PaymentMethodReconciliationSource": {
+  "accountId": "cuid",
+  "createdAt": "datetime",
+  "updatedAt": "datetime"
+ },
+ "WhatsAppBusinessCredentials": {
+  "id": "cuid",
+  "createdAt": "datetime",
+  "updatedAt": "datetime",
+  "accountId": "cuid"
+ },
+ "PlatformConversation": {},
+ "PlatformMessage": {},
+ "PlatformAudio": {},
+ "BillableAgentConversation": {
+  "id": "cuid",
+  "createdAt": "datetime",
+  "updatedAt": "datetime",
+  "accountId": "cuid"
+ },
+ "LoyaltyProgram": {
+  "id": "cuid",
+  "createdAt": "datetime",
+  "updatedAt": "datetime",
+  "accountId": "cuid"
+ },
+ "LoyaltyProgramPriceListLimitation": {},
+ "LoyaltyProgramLocationLimitation": {},
+ "LoyaltyProgramProductSpecificReward": {},
+ "LoyaltyProgramCategorySpecificReward": {},
+ "LoyaltyProgramMovement": {},
+ "PulposGlobalConfiguration": {}
+}
