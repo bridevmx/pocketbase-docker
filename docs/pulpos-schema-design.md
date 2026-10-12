@@ -102,13 +102,14 @@ Pulpos aplica permisos y varias reglas de negocio solo en la interfaz: probé qu
 
 ## 7. Estado de la lógica transaccional
 
+**Hecho — inventario** ([`pulpos-inventory-api.md`](pulpos-inventory-api.md)): ajustes (carga inicial, conteos), traspasos enviar/recibir, compras y gastos (costo promedio ponderado, deuda, pagos en efectivo desde caja), fabricación.
+
 **Hecho — ventas** ([`pulpos-sales-api.md`](pulpos-sales-api.md)): crear venta (contado, mixta, crédito, pedido guardado, offline con `request_id`), cobro posterior, entrega, abonos (uno o varios), reembolsos, cancelación y borrado, con inventario FEFO, lealtad, descuentos y las reglas de negocio validadas en servidor.
 
 **Pendiente (en este orden sugerido):**
 
 | Fase | Contenido |
 |---|---|
-| Inventario | ajustes (con carga de inventario inicial), traspasos, compras y gastos (costo promedio ponderado, deuda, `cash_movements`), fabricación |
 | Caja | `prepare` / `finish` del corte con el desglose esperado |
 | Cotizaciones | alta con totales y conversión a venta |
 | Tienda en línea | rutas públicas por subdominio: `validateCart`, `createOrder` con precios del servidor y stock comprometido |

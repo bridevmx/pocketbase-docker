@@ -87,4 +87,55 @@ function allocateBatches(app, product, locationId, quantity, manual, allowNegati
   return out;
 }
 
-module.exports = { stockRow, batchRow, onHand, committed, available, move, allocateBatches };
+// Existencia total del producto en todas las ubicaciones (base del costo promedio)
+function totalOnHand(app, productId) {
+  const q = new DynamicModel({ q: 0.5 });
+  app.db().newQuery('SELECT COALESCE(SUM(quantity),0) AS q FROM product_stocks WHERE product = {:p}').bind({ p: productId }).one(q);
+  const b = new DynamicModel({ q: 0.5 });
+  app.db().newQuery('SELECT COALESCE(SUM(bs.quantity),0) AS q FROM batch_stocks bs JOIN batches x ON x.id = bs.batch WHERE x.product = {:p}').bind({ p: productId }).one(b);
+  return q.q + b.q;
+}
+
+// Costo promedio ponderado: (existencia × costo actual + entrada × costo nuevo) / (existencia + entrada).
+// Se llama ANTES de mover el inventario. Sin existencia positiva, el costo nuevo reemplaza al actual.
+function applyIncomingCost(app, productId, qtyIn, unitCost) {
+  if (!(qtyIn > 0) || !(unitCost > 0)) return null;
+  const row = U.first(app, 'product_costs', 'product = {:p}', { p: productId });
+  const have = Math.max(0, totalOnHand(app, productId));
+  const old = row ? row.getFloat('cost') : 0;
+  const next = have > 0 && old > 0 ? U.r4((have * old + qtyIn * unitCost) / (have + qtyIn)) : U.r4(unitCost);
+  if (row) { row.set('cost', next); app.save(row); }
+  else U.create(app, 'product_costs', { product: productId, cost: next, cost_type: 'net' });
+  return next;
+}
+
+// Revierte los movimientos de un documento (por relación + origen) con un movimiento inverso en el libro.
+// Devuelve la cantidad de movimientos revertidos.
+function reverse(app, o) { // {field, id, fromOrigin, origin, user, allowNegative, refs}
+  const rows = U.all(app, 'stock_movements', `${o.field} = {:i} && origin = {:o}`, { i: o.id, o: o.fromOrigin }, 'created');
+  for (const m of rows) {
+    const delta = U.r4(m.getFloat('previous_quantity') - m.getFloat('current_quantity'));
+    if (delta === 0) continue;
+    move(app, { product: m.getString('product'), batch: m.getString('batch'), location: m.getString('location'), delta, origin: o.origin, refs: o.refs, user: o.user, allowNegative: o.allowNegative });
+  }
+  return rows.length;
+}
+
+// Alta de lote (o reuso si ya existe el código para ese producto)
+function ensureBatch(app, productId, b) {
+  if (b.batch) {
+    let r; try { r = app.findRecordById('batches', String(b.batch)); } catch (_) { r = null; }
+    if (!r || r.getString('product') !== productId || r.getString('deleted_at')) throw U.fail(400, 'Lote inválido', 'invalid_batch');
+    return r;
+  }
+  const code = String(b.code || '').trim();
+  if (!code) throw U.fail(400, 'Cada lote necesita código', 'batch_code_required');
+  let r = U.first(app, 'batches', 'product = {:p} && code = {:c} && deleted_at = ""', { p: productId, c: code });
+  if (!r) {
+    const date = (v) => (v ? U.nowStr(new Date(v)) : '');
+    r = U.create(app, 'batches', { product: productId, code, expires_at: date(b.expires_at), fabricated_at: date(b.fabricated_at) });
+  }
+  return r;
+}
+
+module.exports = { reverse, ensureBatch, totalOnHand, applyIncomingCost, stockRow, batchRow, onHand, committed, available, move, allocateBatches };
