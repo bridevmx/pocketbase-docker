@@ -100,23 +100,23 @@ Pulpos aplica permisos y varias reglas de negocio solo en la interfaz: probé qu
 - `license.pb.js`: guardia de escrituras por API (licencia y topes), bloqueo de login y de sesiones abiertas si la licencia está suspendida/cancelada, y `GET /api/tpv/subscription`.
 - `lib/`: `license.js` (estado, topes, funciones), `guard.js`, `bootstrap.js`. Los handlers de PocketBase no ven funciones declaradas a nivel de archivo, por eso la lógica vive en módulos que se cargan con `require()` dentro del handler.
 
-## 7. Lo que sigue (fase 2: lógica transaccional)
+## 7. Estado de la lógica transaccional
 
-Con las colecciones ya definidas faltan las rutas del servidor que escriben los documentos con las reglas de Pulpos, **ahora validadas en servidor**:
+**Hecho — ventas** ([`pulpos-sales-api.md`](pulpos-sales-api.md)): crear venta (contado, mixta, crédito, pedido guardado, offline con `request_id`), cobro posterior, entrega, abonos (uno o varios), reembolsos, cancelación y borrado, con inventario FEFO, lealtad, descuentos y las reglas de negocio validadas en servidor.
 
-| Ruta | Reglas |
+**Pendiente (en este orden sugerido):**
+
+| Fase | Contenido |
 |---|---|
-| `POST /api/tpv/orders` (y sync offline por `request_id`) | partidas, descuentos por partida y de carrito, pagos mixtos, crédito con vencimiento, lotes (manual/FEFO), stock negativo según ajuste, **recalcular totales en servidor**, margen mínimo, límite y deuda vencida del cliente, puntos de lealtad |
-| abonos, reembolsos, cancelación, eliminación, entrega | `settles_payment`, `unified_debt_payment`, `ORDER_RETURN`/`ORDER_DELETE`, reversas de lealtad |
-| compras, gastos y pagos | costo promedio ponderado, deuda, `cash_movements` en efectivo |
-| ajustes, traspasos, fabricación | libro de inventario, eventos |
-| corte de caja | `prepare` / `finish` con el desglose esperado |
-| cotización → venta | `status = sold` |
-| tienda en línea (rutas públicas por subdominio) | `validateCart`, `createOrder` con precios del servidor, stock comprometido |
-| analítica | ventas por periodo/producto/cliente/categoría/vendedor/pago, inventario |
+| Inventario | ajustes (con carga de inventario inicial), traspasos, compras y gastos (costo promedio ponderado, deuda, `cash_movements`), fabricación |
+| Caja | `prepare` / `finish` del corte con el desglose esperado |
+| Cotizaciones | alta con totales y conversión a venta |
+| Tienda en línea | rutas públicas por subdominio: `validateCart`, `createOrder` con precios del servidor y stock comprometido |
+| Analítica | ventas por periodo/producto/cliente/categoría/vendedor/pago, inventario y margen |
+| Impuestos y promociones | `with_taxes`, promociones automáticas |
 
 ## 8. Validación
 
 - `node tools/build-schema.mjs` regenera `pb_migrations/*` y `docs/pulpos-schema.md` desde `schema/*.mjs` (no editar la migración a mano).
-- `PB_BIN=/ruta/pocketbase tools/smoke.sh` levanta un PocketBase temporal y corre las comprobaciones: alta única, unicidad con borrado lógico, permisos finos, costos ocultos, acotado por sucursal, documentos de solo servidor, idempotencia, topes de licencia, prueba/pago vencido, suspensión.
+- `PB_BIN=/ruta/pocketbase tools/smoke.sh` levanta un PocketBase temporal y corre las comprobaciones (69 de instancia + 85 de ventas): alta única, unicidad con borrado lógico, permisos finos, costos ocultos, acotado por sucursal, documentos de solo servidor, idempotencia, topes de licencia, prueba/pago vencido, suspensión.
 - Las migraciones son reversibles (`migrate down`).

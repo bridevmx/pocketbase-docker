@@ -151,4 +151,4 @@ curl -X POST http://localhost:8090/api/tpv/setup -H 'content-type: application/j
 
 Como servicio (muchos negocios): `tools/provision-business.sh <slug>` crea e inicia la instancia (plantilla en `deploy/`, proxy con comodín en `deploy/Caddyfile`) y `tools/set-license.mjs` fija plan, estado, vencimiento y topes de ese negocio.
 
-Desarrollo: `node tools/build-schema.mjs` regenera las migraciones desde `schema/*.mjs`; `PB_BIN=/ruta/pocketbase tools/smoke.sh` valida todo contra un PocketBase real.
+Ventas: rutas `/api/tpv/orders…` ([`docs/pulpos-sales-api.md`](docs/pulpos-sales-api.md)). Desarrollo: `node tools/build-schema.mjs` regenera las migraciones desde `schema/*.mjs`; `PB_BIN=/ruta/pocketbase tools/smoke.sh` valida todo contra un PocketBase real.
