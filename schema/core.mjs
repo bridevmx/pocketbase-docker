@@ -16,15 +16,17 @@ export default [
       email('email'),
       photos('logo', 1),
       rel('owner', 'users'),
-      text('plan', { max: 60 }),
+      // Suscripción: el estado lo cambian el servidor/superusuario (cobro), nunca el cliente
+      rel('plan', 'plans'),
+      sel('status', ['trial', 'active', 'past_due', 'suspended', 'cancelled'], { required: true }),
       date('trial_ends_at'),
-      bool('active'),
+      date('paid_until'),
     ],
     rules: {
       list: '@request.auth.id != "" && @request.auth.account = id',
       view: '@request.auth.id != "" && @request.auth.account = id',
       create: null, delete: null,
-      update: '@request.auth.id != "" && @request.auth.account = id && @request.auth.role = "admin" && @request.body.plan:isset = false && @request.body.trial_ends_at:isset = false && @request.body.active:isset = false && @request.body.owner:isset = false',
+      update: '@request.auth.id != "" && @request.auth.account = id && @request.auth.role = "admin" && @request.body.plan:isset = false && @request.body.status:isset = false && @request.body.trial_ends_at:isset = false && @request.body.paid_until:isset = false && @request.body.owner:isset = false',
     },
   }),
 
@@ -64,6 +66,25 @@ export default [
       rels('requires', 'permissions'),
     ],
     idx: [uniq(['key'])],
+  }),
+
+  // Planes y límites (editables por el superusuario). Los add-ons suman a estos topes.
+  col('plans', {
+    kind: 'lookup', noAccount: true,
+    fields: [
+      text('code', { required: true, max: 40 }),
+      text('name', { required: true, max: 80 }),
+      num('max_users', { min: 1, onlyInt: true }),
+      num('max_branches', { min: 1, onlyInt: true }),
+      num('max_warehouses', { min: 0, onlyInt: true }),
+      num('position', { min: 0, onlyInt: true }),
+    ],
+    idx: [uniq(['code'])],
+  }),
+  col('plan_features', {
+    kind: 'lookup', noAccount: true,
+    fields: [rel('plan', 'plans', { required: true, cascade: true }), sel('feature', FEATURE, { required: true })],
+    idx: [uniq(['plan', 'feature'])],
   }),
 
   col('measure_units', {
@@ -202,8 +223,10 @@ export default [
     idx: [uniq(['account'])],
   }),
 
+  // Add-ons comprados (extra_user, extra_branch…): solo los escribe el servidor/superusuario
   col('account_features', {
-    kind: 'config',
+    kind: 'custom',
+    rules: { list: T, view: T, create: null, update: null, delete: null },
     fields: [
       sel('feature', FEATURE, { required: true }),
       bool('enabled'),

@@ -23,8 +23,9 @@ routerAdd('POST', '/api/tpv/signup', (e) => {
     account.set('currency', 'mxn');
     account.set('business_type', body.business_type || 'other');
     account.set('type_of_sale', body.type_of_sale || 'retail');
-    account.set('plan', 'trial');
-    account.set('active', true);
+    const trialPlan = tx.findFirstRecordByFilter('plans', 'code = "trial"');
+    account.set('plan', trialPlan.id);
+    account.set('status', 'trial');
     const trial = new Date();
     trial.setDate(trial.getDate() + 14);
     account.set('trial_ends_at', trial.toISOString().replace('T', ' '));

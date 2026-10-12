@@ -804,6 +804,65 @@ migrate((app) => {
     "manufacturing_order.read"
    ]
   }
+ ],
+ "PLANS": [
+  {
+   "code": "trial",
+   "name": "Prueba",
+   "max_users": 3,
+   "max_branches": 1,
+   "max_warehouses": 1,
+   "position": 0,
+   "features": [
+    "manufacturing",
+    "bank_reconciliations",
+    "whatsapp_sales_channel",
+    "catalog_plus"
+   ]
+  },
+  {
+   "code": "inicial",
+   "name": "Inicial",
+   "max_users": 1,
+   "max_branches": 1,
+   "max_warehouses": 1,
+   "position": 1,
+   "features": []
+  },
+  {
+   "code": "esencial",
+   "name": "Esencial",
+   "max_users": 3,
+   "max_branches": 1,
+   "max_warehouses": 1,
+   "position": 2,
+   "features": []
+  },
+  {
+   "code": "avanzado",
+   "name": "Avanzado",
+   "max_users": 5,
+   "max_branches": 3,
+   "max_warehouses": 3,
+   "position": 3,
+   "features": [
+    "manufacturing"
+   ]
+  },
+  {
+   "code": "pro",
+   "name": "Pro",
+   "max_users": 10,
+   "max_branches": 5,
+   "max_warehouses": 5,
+   "position": 4,
+   "features": [
+    "manufacturing",
+    "bank_reconciliations",
+    "whatsapp_sales_channel",
+    "catalog_plus"
+   ]
+  }
  ]
 };
 
@@ -822,6 +881,20 @@ migrate((app) => {
     app.save(r); // account vacío = impuesto global
   }
 
+  const plans = app.findCollectionByNameOrId('plans');
+  const planFeatures = app.findCollectionByNameOrId('plan_features');
+  for (const p of SEED.PLANS) {
+    const r = new Record(plans);
+    r.set('code', p.code); r.set('name', p.name); r.set('max_users', p.max_users);
+    r.set('max_branches', p.max_branches); r.set('max_warehouses', p.max_warehouses); r.set('position', p.position);
+    app.save(r);
+    for (const f of p.features) {
+      const pf = new Record(planFeatures);
+      pf.set('plan', r.id); pf.set('feature', f);
+      app.save(pf);
+    }
+  }
+
   const perms = app.findCollectionByNameOrId('permissions');
   const byKey = {};
   for (const p of SEED.PERMS) {
@@ -836,7 +909,7 @@ migrate((app) => {
     app.save(r);
   }
 }, (app) => {
-  for (const name of ['permissions', 'taxes', 'measure_units']) {
+  for (const name of ['plan_features', 'plans', 'permissions', 'taxes', 'measure_units']) {
     app.db().newQuery('DELETE FROM ' + name + (name === 'taxes' ? " WHERE account = ''" : '')).execute();
   }
 });

@@ -36,9 +36,7 @@ function bootstrapAccount(app, account) {
   for (const method of ['cash', 'card', 'transfer', 'credit', 'debit_card']) {
     mk(app, 'account_payment_methods', { account: acc, method, enabled: true });
   }
-  for (const feature of ['manufacturing', 'bank_reconciliations', 'whatsapp_sales_channel']) {
-    mk(app, 'account_features', { account: acc, feature, enabled: true });
-  }
+  // las funciones habilitadas salen del plan (plan_features) + add-ons (account_features), no se siembran aquí
   const units = app.findRecordsByFilter('measure_units', 'key != ""', 'key', 100, 0);
   for (const u of units) mk(app, 'account_units', { account: acc, unit: u.id });
 }

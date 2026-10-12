@@ -1,6 +1,6 @@
 # Schema de PocketBase (generado)
 
-Generado por `tools/build-schema.mjs` desde `schema/*.mjs`. **93 colecciones**, sin campos `json`.
+Generado por `tools/build-schema.mjs` desde `schema/*.mjs`. **95 colecciones**, sin campos `json`.
 
 Tipos: `text` `number` `bool` `date` `select(...)` `file` `rel→colección` (`[]` = relación múltiple). `deleted_at` = borrado lógico.
 
@@ -18,9 +18,10 @@ Tipos: `text` `number` `bool` `date` `select(...)` `file` `rel→colección` (`[
 | `email` | email |
 | `logo` | file |
 | `owner` | rel→users |
-| `plan` | text |
+| `plan` | rel→plans |
+| `status` * | select(trial\|active\|past_due\|suspended\|cancelled) |
 | `trial_ends_at` | date |
-| `active` | bool |
+| `paid_until` | date |
 
 ## `users` (extiende la colección auth `users`)
 
@@ -52,6 +53,32 @@ Tipos: `text` `number` `bool` `date` `select(...)` `file` `rel→colección` (`[
 | `requires` | rel→permissions [] |
 
 Únicos: (key)
+
+## `plans`
+
+*catálogo global (solo lectura)*
+
+| campo | tipo |
+|---|---|
+| `code` * | text |
+| `name` * | text |
+| `max_users` | number |
+| `max_branches` | number |
+| `max_warehouses` | number |
+| `position` | number |
+
+Únicos: (code)
+
+## `plan_features`
+
+*catálogo global (solo lectura)*
+
+| campo | tipo |
+|---|---|
+| `plan` * | rel→plans |
+| `feature` * | select(manufacturing\|bank_reconciliations\|whatsapp_sales_channel\|catalog_plus\|white_label\|extra_branch\|extra_user\|ai_seller) |
+
+Únicos: (plan, feature)
 
 ## `measure_units`
 
@@ -204,7 +231,7 @@ Tipos: `text` `number` `bool` `date` `select(...)` `file` `rel→colección` (`[
 
 ## `account_features`
 
-*configuración (admin escribe)*
+*reglas propias*
 
 | campo | tipo |
 |---|---|

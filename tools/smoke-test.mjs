@@ -29,10 +29,10 @@ const tA = A.token, tB = B.token; const accA = A.record.account, accB = B.record
 ok(A.record.role === 'admin' && A.record.is_account_owner === true, 'el dueño queda como admin');
 
 const count = async (col, filter, token = SU) => (await api('GET', `/api/collections/${col}/records?perPage=1&filter=${encodeURIComponent(filter)}`, { token })).data?.totalItems;
-for (const [c, n] of [['locations', 1], ['cashiers', 1], ['order_series', 1], ['price_lists', 1], ['clients', 1], ['account_settings', 1], ['account_payment_methods', 5], ['account_features', 3], ['account_units', 13]]) {
+for (const [c, n] of [['locations', 1], ['cashiers', 1], ['order_series', 1], ['price_lists', 1], ['clients', 1], ['account_settings', 1], ['account_payment_methods', 5], ['account_features', 0], ['account_units', 13]]) {
   ok((await count(c, `account="${accA}"`)) === n, `bootstrap: ${c} = ${n}`);
 }
-ok((await count('measure_units', 'key!=""')) === 13 && (await count('taxes', 'account=""')) === 21 && (await count('permissions', 'key!=""')) === 75, 'semillas: 13 unidades, 21 impuestos globales, 75 permisos');
+ok((await count('measure_units', 'key!=""')) === 13 && (await count('taxes', 'account=""')) === 21 && (await count('permissions', 'key!=""')) === 75 && (await count('plans', 'code!=""')) === 5, 'semillas: 13 unidades, 21 impuestos globales, 75 permisos, 5 planes');
 
 const g = async (col, token, q = '') => (await api('GET', `/api/collections/${col}/records?perPage=200${q}`, { token }));
 const locA = (await g('locations', tA)).data.items[0];
@@ -99,6 +99,55 @@ ok(dupReq.status === 400, 'request_id repetido se rechaza (idempotencia de venta
 console.log('\n● Catálogos globales');
 ok(denied(await api('POST', '/api/collections/measure_units/records', { token: tA, body: { key: 'x', name_singular: 'x', name_plural: 'x' } })), 'un usuario no puede modificar catálogos globales');
 ok((await api('GET', '/api/collections/products/records', {})).status === 403 || (await api('GET', '/api/collections/products/records', {})).data?.totalItems === 0, 'sin sesión no se lee nada');
+
+
+console.log('\n● Plan, prueba y topes (SaaS)');
+const subA = (await api('GET', '/api/tpv/subscription', { token: tA })).data;
+ok(subA.status === 'trial' && subA.access === 'full' && subA.plan.code === 'trial', 'suscripción: cuenta nueva en prueba con acceso completo');
+ok(subA.limits.users.max === 3 && subA.limits.branches.max === 1 && subA.features.includes('manufacturing'), 'suscripción: topes del plan y funciones incluidas');
+const newUser = (n, token = tA) => api('POST', '/api/collections/users/records', { token, body: { email: `u${n}@test.mx`, password: 'password-uu-1', passwordConfirm: 'password-uu-1', name: 'U' + n, role: 'user', account: accA } });
+ok((await newUser(1)).status === 200, 'tope de usuarios: el tercero (dueño + cajero + 1) entra');
+const over = await newUser(2);
+ok(over.status === 402 && over.data?.data?.plan_limit_users !== undefined, 'tope de usuarios: el cuarto se rechaza con 402 plan_limit_users');
+const newLoc = (type, name) => api('POST', '/api/collections/locations/records', { token: tA, body: { account: accA, name, type } });
+const l2 = await newLoc('branch', 'Sucursal 2');
+ok(l2.status === 402 && l2.data?.data?.plan_limit_branches !== undefined, 'tope de sucursales: la segunda se rechaza (plan trial = 1)');
+ok((await newLoc('warehouse', 'Almacén 1')).status === 200, 'tope de almacenes: el primero entra');
+ok((await newLoc('warehouse', 'Almacén 2')).status === 402, 'tope de almacenes: el segundo se rechaza');
+ok((await api('POST', '/api/collections/account_features/records', { token: tA, body: { account: accA, feature: 'extra_branch', enabled: true, quantity: 1 } })).status === 403, 'el cliente NO puede darse add-ons');
+const addon = await api('POST', '/api/collections/account_features/records', { token: SU, body: { account: accA, feature: 'extra_branch', enabled: true, quantity: 1 } });
+ok(addon.status === 200, 'el superusuario (cobro) registra el add-on extra_branch');
+ok((await newLoc('branch', 'Sucursal 2')).status === 200, 'con el add-on, la segunda sucursal sí entra');
+ok((await newLoc('branch', 'Sucursal 3')).status === 402, '…pero la tercera no');
+ok((await api('GET', '/api/tpv/subscription', { token: tA })).data.limits.branches.max === 2, 'la suscripción refleja plan + add-on (2 sucursales)');
+ok(denied(await api('PATCH', `/api/collections/accounts/records/${accA}`, { token: tA, body: { status: 'active' } })), 'el cliente NO puede cambiar su estado de suscripción');
+ok(denied(await api('PATCH', `/api/collections/accounts/records/${accA}`, { token: tA, body: { plan: (await g('plans', SU, '&filter=code="pro"')).data.items[0].id } })), 'el cliente NO puede cambiar su plan');
+ok((await api('PATCH', `/api/collections/accounts/records/${accA}`, { token: tA, body: { name: 'Tienda A (renombrada)' } })).status === 200, 'pero sí puede cambiar el nombre de su negocio');
+
+// prueba vencida → solo lectura
+await api('PATCH', `/api/collections/accounts/records/${accA}`, { token: SU, body: { trial_ends_at: '2026-01-01 00:00:00.000Z' } });
+const exp = await api('POST', '/api/collections/product_categories/records', { token: tA, body: { account: accA, name: 'Nueva' } });
+ok(exp.status === 402 && exp.data?.data?.trial_expired !== undefined, 'prueba vencida: escribir da 402 trial_expired');
+ok((await g('products', tA)).status === 200 && (await g('products', tA)).data.totalItems >= 1, 'prueba vencida: sigue pudiendo LEER sus datos');
+const subExp = (await api('GET', '/api/tpv/subscription', { token: tA })).data;
+ok(subExp.access === 'read_only' && subExp.reason === 'trial_expired', 'la suscripción informa read_only / trial_expired');
+ok((await api('POST', '/api/collections/product_categories/records', { token: tB, body: { account: accB, name: 'B sigue' } })).status === 200, 'otro negocio no se afecta');
+
+// pago al corriente → vuelve a escribir; vencido dentro de la gracia sí; fuera de la gracia no
+const days = (n) => new Date(Date.now() + n * 86400000).toISOString().replace('T', ' ');
+await api('PATCH', `/api/collections/accounts/records/${accA}`, { token: SU, body: { status: 'active', paid_until: days(30) } });
+ok((await api('POST', '/api/collections/product_categories/records', { token: tA, body: { account: accA, name: 'Pagada' } })).status === 200, 'plan activo con pago vigente: escribe');
+await api('PATCH', `/api/collections/accounts/records/${accA}`, { token: SU, body: { paid_until: days(-1) } });
+ok((await api('POST', '/api/collections/product_categories/records', { token: tA, body: { account: accA, name: 'Gracia' } })).status === 200, 'pago vencido ayer: aún dentro de los días de gracia');
+await api('PATCH', `/api/collections/accounts/records/${accA}`, { token: SU, body: { paid_until: days(-10) } });
+const od = await api('POST', '/api/collections/product_categories/records', { token: tA, body: { account: accA, name: 'Vencida' } });
+ok(od.status === 402 && od.data?.data?.payment_overdue !== undefined, 'pago vencido hace 10 días: 402 payment_overdue');
+
+// suspendida → ni entra
+await api('PATCH', `/api/collections/accounts/records/${accA}`, { token: SU, body: { status: 'suspended' } });
+ok((await api('POST', '/api/collections/users/auth-with-password', { body: { identity: 'a@test.mx', password: 'password-a-1' } })).status === 403, 'cuenta suspendida: no se puede iniciar sesión');
+await api('PATCH', `/api/collections/accounts/records/${accA}`, { token: SU, body: { status: 'active', paid_until: days(30) } });
+ok((await api('POST', '/api/collections/users/auth-with-password', { body: { identity: 'a@test.mx', password: 'password-a-1' } })).status === 200, 'al reactivarla, vuelve a entrar');
 
 console.log(`\nResultado: ${pass} ok, ${fail} fallos`);
 process.exit(fail ? 1 : 0);
