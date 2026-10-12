@@ -1,0 +1,747 @@
+{
+ "ORDER": [
+  {
+   "action": "create",
+   "subject": "ORDER",
+   "requires": [],
+   "implies": [
+    "createWithCredit",
+    "applyPersonalizedPrice",
+    "manageManualEntry",
+    "adminPromotions",
+    "adminDiscount",
+    "assignSalesman",
+    "postponeProductsDelivery",
+    "sellDigitalService",
+    "saveCounterOrder",
+    "removeAndAddTaxes"
+   ]
+  },
+  {
+   "action": "adminPromotions",
+   "subject": "ORDER",
+   "requires": [
+    "create"
+   ],
+   "implies": [
+    "adminDiscount"
+   ]
+  },
+  {
+   "action": "adminDiscount",
+   "subject": "ORDER",
+   "requires": [
+    "create",
+    "adminPromotions"
+   ],
+   "implies": []
+  },
+  {
+   "action": "manageManualEntry",
+   "subject": "ORDER",
+   "requires": [
+    "create"
+   ],
+   "implies": []
+  },
+  {
+   "action": "applyPersonalizedPrice",
+   "subject": "ORDER",
+   "requires": [
+    "create"
+   ],
+   "implies": []
+  },
+  {
+   "action": "createWithCredit",
+   "subject": "ORDER",
+   "requires": [
+    "create"
+   ],
+   "implies": []
+  },
+  {
+   "action": "sellDigitalService",
+   "subject": "ORDER",
+   "requires": [
+    "create"
+   ],
+   "implies": []
+  },
+  {
+   "action": "assignSalesman",
+   "subject": "ORDER",
+   "requires": [
+    "create"
+   ],
+   "implies": []
+  },
+  {
+   "action": "removeAndAddTaxes",
+   "subject": "ORDER",
+   "requires": [
+    "create"
+   ],
+   "implies": []
+  },
+  {
+   "action": "postponeProductsDelivery",
+   "subject": "ORDER",
+   "requires": [
+    "create"
+   ],
+   "implies": []
+  },
+  {
+   "action": "saveCounterOrder",
+   "subject": "ORDER",
+   "requires": [
+    "create"
+   ],
+   "implies": []
+  },
+  {
+   "action": "read",
+   "subject": "ORDER",
+   "requires": [],
+   "implies": [
+    "edit",
+    "registerPaymentAndShipping",
+    "refund",
+    "cancel",
+    "export"
+   ]
+  },
+  {
+   "action": "edit",
+   "subject": "ORDER",
+   "requires": [
+    "read"
+   ],
+   "implies": []
+  },
+  {
+   "action": "registerPaymentAndShipping",
+   "subject": "ORDER",
+   "requires": [
+    "read"
+   ],
+   "implies": []
+  },
+  {
+   "action": "refund",
+   "subject": "ORDER",
+   "requires": [
+    "read"
+   ],
+   "implies": []
+  },
+  {
+   "action": "cancel",
+   "subject": "ORDER",
+   "requires": [
+    "read"
+   ],
+   "implies": []
+  },
+  {
+   "action": "export",
+   "subject": "ORDER",
+   "requires": [
+    "read"
+   ],
+   "implies": []
+  }
+ ],
+ "QUOTATION": [
+  {
+   "action": "read",
+   "subject": "QUOTATION",
+   "requires": [],
+   "implies": [
+    "create",
+    "edit",
+    "adminDiscount",
+    "adminPromotions",
+    "applyPersonalizedPrice",
+    "manageManualEntry",
+    "removeAndAddTaxes"
+   ]
+  },
+  {
+   "action": "create",
+   "subject": "QUOTATION",
+   "requires": [
+    "read"
+   ],
+   "implies": []
+  },
+  {
+   "action": "edit",
+   "subject": "QUOTATION",
+   "requires": [
+    "read"
+   ],
+   "implies": []
+  },
+  {
+   "action": "adminPromotions",
+   "subject": "QUOTATION",
+   "requires": [
+    "read"
+   ],
+   "implies": [
+    "adminDiscount"
+   ]
+  },
+  {
+   "action": "adminDiscount",
+   "subject": "QUOTATION",
+   "requires": [
+    "read",
+    "adminPromotions"
+   ],
+   "implies": []
+  },
+  {
+   "action": "removeAndAddTaxes",
+   "subject": "QUOTATION",
+   "requires": [
+    "read"
+   ],
+   "implies": []
+  },
+  {
+   "action": "manageManualEntry",
+   "subject": "QUOTATION",
+   "requires": [
+    "read"
+   ],
+   "implies": []
+  },
+  {
+   "action": "applyPersonalizedPrice",
+   "subject": "QUOTATION",
+   "requires": [
+    "read"
+   ],
+   "implies": []
+  }
+ ],
+ "PRODUCT": [
+  {
+   "action": "read",
+   "subject": "PRODUCT",
+   "requires": [],
+   "implies": [
+    "create",
+    "edit",
+    "readCost",
+    "readAllLocationsStock",
+    "editCost",
+    "editStock",
+    "export",
+    "import",
+    "admin"
+   ]
+  },
+  {
+   "action": "readCost",
+   "subject": "PRODUCT",
+   "requires": [
+    "read"
+   ],
+   "implies": [
+    "editCost"
+   ]
+  },
+  {
+   "action": "readAllLocationsStock",
+   "subject": "PRODUCT",
+   "requires": [
+    "read"
+   ],
+   "implies": []
+  },
+  {
+   "action": "create",
+   "subject": "PRODUCT",
+   "requires": [
+    "read"
+   ],
+   "implies": []
+  },
+  {
+   "action": "edit",
+   "subject": "PRODUCT",
+   "requires": [
+    "read"
+   ],
+   "implies": [
+    "editCost",
+    "editStock"
+   ]
+  },
+  {
+   "action": "editCost",
+   "subject": "PRODUCT",
+   "requires": [
+    "read",
+    "readCost",
+    "edit"
+   ],
+   "implies": []
+  },
+  {
+   "action": "editStock",
+   "subject": "PRODUCT",
+   "requires": [
+    "read",
+    "edit"
+   ],
+   "implies": []
+  },
+  {
+   "action": "export",
+   "subject": "PRODUCT",
+   "requires": [
+    "read"
+   ],
+   "implies": []
+  },
+  {
+   "action": "import",
+   "subject": "PRODUCT",
+   "requires": [
+    "read"
+   ],
+   "implies": []
+  },
+  {
+   "action": "admin",
+   "subject": "PRODUCT_CATEGORY",
+   "requires": [
+    "read"
+   ],
+   "implies": []
+  }
+ ],
+ "STOCK_ADJUSTMENT": [
+  {
+   "action": "read",
+   "subject": "STOCK_ADJUSTMENT",
+   "requires": [],
+   "implies": [
+    "manageDraft",
+    "complete"
+   ]
+  },
+  {
+   "action": "manageDraft",
+   "subject": "STOCK_ADJUSTMENT",
+   "requires": [
+    "read"
+   ],
+   "implies": []
+  },
+  {
+   "action": "complete",
+   "subject": "STOCK_ADJUSTMENT",
+   "requires": [
+    "read"
+   ],
+   "implies": []
+  }
+ ],
+ "TRANSFER": [
+  {
+   "action": "read",
+   "subject": "TRANSFER",
+   "requires": [],
+   "implies": [
+    "manageDraft",
+    "send",
+    "receive"
+   ]
+  },
+  {
+   "action": "manageDraft",
+   "subject": "TRANSFER",
+   "requires": [
+    "read"
+   ],
+   "implies": []
+  },
+  {
+   "action": "send",
+   "subject": "TRANSFER",
+   "requires": [
+    "read"
+   ],
+   "implies": []
+  },
+  {
+   "action": "receive",
+   "subject": "TRANSFER",
+   "requires": [
+    "read"
+   ],
+   "implies": []
+  }
+ ],
+ "PURCHASE": [
+  {
+   "action": "read",
+   "subject": "OUTLAY",
+   "requires": [],
+   "implies": [
+    "create",
+    "admin",
+    "registerPayment",
+    "export"
+   ]
+  },
+  {
+   "action": "create",
+   "subject": "PURCHASE",
+   "requires": [
+    "read"
+   ],
+   "implies": []
+  },
+  {
+   "action": "create",
+   "subject": "EXPENSE",
+   "requires": [
+    "read"
+   ],
+   "implies": []
+  },
+  {
+   "action": "registerPayment",
+   "subject": "OUTLAY",
+   "requires": [
+    "read"
+   ],
+   "implies": []
+  },
+  {
+   "action": "admin",
+   "subject": "PROVIDER",
+   "requires": [
+    "read"
+   ],
+   "implies": []
+  },
+  {
+   "action": "export",
+   "subject": "OUTLAY",
+   "requires": [
+    "read"
+   ],
+   "implies": []
+  }
+ ],
+ "INVOICE": [
+  {
+   "action": "read",
+   "subject": "INVOICE",
+   "requires": [],
+   "implies": [
+    "create",
+    "cancel",
+    "configure",
+    "export"
+   ]
+  },
+  {
+   "action": "create",
+   "subject": "INVOICE",
+   "requires": [
+    "read"
+   ],
+   "implies": []
+  },
+  {
+   "action": "cancel",
+   "subject": "INVOICE",
+   "requires": [
+    "read"
+   ],
+   "implies": []
+  },
+  {
+   "action": "export",
+   "subject": "INVOICE",
+   "requires": [
+    "read"
+   ],
+   "implies": []
+  },
+  {
+   "action": "configure",
+   "subject": "INVOICE",
+   "requires": [
+    "read"
+   ],
+   "implies": []
+  }
+ ],
+ "CASHIER_AUDIT": [
+  {
+   "action": "readCurrent",
+   "subject": "CASHIER_AUDIT",
+   "requires": [],
+   "implies": [
+    "create"
+   ]
+  },
+  {
+   "action": "create",
+   "subject": "CASHIER_AUDIT",
+   "requires": [
+    "readCurrent"
+   ],
+   "implies": []
+  },
+  {
+   "action": "create",
+   "subject": "CASH_MOVEMENT",
+   "requires": [
+    "readCurrent"
+   ],
+   "implies": []
+  },
+  {
+   "action": "read",
+   "subject": "CASHIER_AUDIT",
+   "requires": [],
+   "implies": [
+    "export"
+   ]
+  },
+  {
+   "action": "export",
+   "subject": "CASHIER_AUDIT",
+   "requires": [
+    "read"
+   ],
+   "implies": []
+  }
+ ],
+ "CLIENT": [
+  {
+   "action": "read",
+   "subject": "CLIENT",
+   "requires": [],
+   "implies": [
+    "create",
+    "import",
+    "edit",
+    "export"
+   ]
+  },
+  {
+   "action": "create",
+   "subject": "CLIENT",
+   "requires": [
+    "read"
+   ],
+   "implies": [
+    "import"
+   ]
+  },
+  {
+   "action": "import",
+   "subject": "CLIENT",
+   "requires": [
+    "create",
+    "read"
+   ],
+   "implies": []
+  },
+  {
+   "action": "edit",
+   "subject": "CLIENT",
+   "requires": [
+    "read"
+   ],
+   "implies": [
+    "editDebtLimit"
+   ]
+  },
+  {
+   "action": "editDebtLimit",
+   "subject": "CLIENT",
+   "requires": [
+    "edit"
+   ],
+   "implies": []
+  },
+  {
+   "action": "export",
+   "subject": "CLIENT",
+   "requires": [
+    "read"
+   ],
+   "implies": []
+  }
+ ],
+ "CATALOG": [
+  {
+   "action": "read",
+   "subject": "CATALOG",
+   "requires": [],
+   "implies": [
+    "editPaymentAndShipping",
+    "customize",
+    "editUrl",
+    "enable"
+   ]
+  },
+  {
+   "action": "editPaymentAndShipping",
+   "subject": "CATALOG",
+   "requires": [
+    "read"
+   ],
+   "implies": []
+  },
+  {
+   "action": "customize",
+   "subject": "CATALOG",
+   "requires": [
+    "read"
+   ],
+   "implies": []
+  },
+  {
+   "action": "editUrl",
+   "subject": "CATALOG",
+   "requires": [
+    "read"
+   ],
+   "implies": []
+  },
+  {
+   "action": "enable",
+   "subject": "CATALOG",
+   "requires": [
+    "read"
+   ],
+   "implies": []
+  }
+ ],
+ "PROMOTION": [
+  {
+   "action": "admin",
+   "subject": "PROMOTION",
+   "requires": [],
+   "implies": []
+  }
+ ],
+ "REPORT": [
+  {
+   "action": "viewSalesReports",
+   "subject": "REPORT",
+   "requires": [],
+   "implies": []
+  },
+  {
+   "action": "viewFinanceReports",
+   "subject": "REPORT",
+   "requires": [],
+   "implies": []
+  },
+  {
+   "action": "viewInventoryReports",
+   "subject": "REPORT",
+   "requires": [],
+   "implies": []
+  },
+  {
+   "action": "viewPurchasesReports",
+   "subject": "REPORT",
+   "requires": [],
+   "implies": []
+  }
+ ],
+ "MANUFACTURING_ORDER": [
+  {
+   "action": "read",
+   "subject": "MANUFACTURING_ORDER",
+   "requires": [],
+   "implies": [
+    "create",
+    "start",
+    "finish",
+    "cancel",
+    "export"
+   ]
+  },
+  {
+   "action": "create",
+   "subject": "MANUFACTURING_ORDER",
+   "requires": [
+    "read"
+   ],
+   "implies": []
+  },
+  {
+   "action": "start",
+   "subject": "MANUFACTURING_ORDER",
+   "requires": [
+    "read"
+   ],
+   "implies": []
+  },
+  {
+   "action": "finish",
+   "subject": "MANUFACTURING_ORDER",
+   "requires": [
+    "read"
+   ],
+   "implies": []
+  },
+  {
+   "action": "cancel",
+   "subject": "MANUFACTURING_ORDER",
+   "requires": [
+    "read"
+   ],
+   "implies": []
+  },
+  {
+   "action": "export",
+   "subject": "MANUFACTURING_ORDER",
+   "requires": [
+    "read"
+   ],
+   "implies": []
+  }
+ ],
+ "RECONCILIATION": [
+  {
+   "action": "admin",
+   "subject": "RECONCILIATION",
+   "requires": [],
+   "implies": []
+  }
+ ],
+ "WHATSAPP": [
+  {
+   "action": "admin",
+   "subject": "WHATSAPP",
+   "requires": [],
+   "implies": []
+  }
+ ],
+ "AI_AGENTS": [
+  {
+   "action": "admin",
+   "subject": "AI_AGENTS",
+   "requires": [],
+   "implies": []
+  }
+ ]
+}
