@@ -1,0 +1,65 @@
+name: Tests
+
+on:
+  push:
+  pull_request:
+  schedule:
+    - cron: "17 5 * * *"   # diario: detecta si una versión nueva de PocketBase rompe algo
+  workflow_dispatch:
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    name: Esquema y sintaxis
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Las migraciones están al día con schema/*.mjs
+        run: |
+          node tools/build-schema.mjs
+          git diff --exit-code -- pb_migrations docs/pulpos-schema.md || {
+            echo "::error::Corre 'node tools/build-schema.mjs' y sube los cambios de pb_migrations/ y docs/pulpos-schema.md"; exit 1; }
+      - name: Sintaxis de hooks y herramientas
+        run: |
+          for f in pb_hooks/*.js pb_hooks/lib/*.js tools/*.mjs schema/*.mjs pb_migrations/*.js; do node --check "$f" || exit 1; done
+
+  smoke:
+    name: Suites contra PocketBase ${{ matrix.pocketbase }}
+    runs-on: ubuntu-latest
+    needs: checks
+    strategy:
+      fail-fast: false
+      matrix:
+        pocketbase: ["0.40.0"]   # la versión con la que se desarrolló y se prueba el repo
+        include:
+          - pocketbase: latest
+            experimental: true
+    continue-on-error: ${{ matrix.experimental == true }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Descargar PocketBase
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          V="${{ matrix.pocketbase }}"
+          if [ "$V" = "latest" ]; then
+            V="$(curl -fsSL -H "Authorization: Bearer $GH_TOKEN" https://api.github.com/repos/pocketbase/pocketbase/releases/latest | sed -n 's/.*"tag_name": *"v\([^"]*\)".*/\1/p' | head -1)"
+          fi
+          echo "PocketBase $V"
+          mkdir -p "$RUNNER_TEMP/pb"
+          curl -fsSL -o "$RUNNER_TEMP/pb.zip" "https://github.com/pocketbase/pocketbase/releases/download/v${V}/pocketbase_${V}_linux_amd64.zip"
+          unzip -q "$RUNNER_TEMP/pb.zip" -d "$RUNNER_TEMP/pb"
+          chmod +x "$RUNNER_TEMP/pb/pocketbase"
+          "$RUNNER_TEMP/pb/pocketbase" --version
+          echo "PB_BIN=$RUNNER_TEMP/pb/pocketbase" >> "$GITHUB_ENV"
+      - name: Correr las suites (instancias temporales)
+        run: tools/smoke.sh

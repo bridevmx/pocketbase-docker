@@ -27,4 +27,5 @@ run smoke-quotations.mjs 8103
 run smoke-storefront.mjs 8104
 run smoke-analytics.mjs 8105
 run smoke-promotions.mjs 8106
+run smoke-sync.mjs 8107
 exit $FAILED

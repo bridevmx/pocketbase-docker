@@ -1,0 +1,131 @@
+#!/usr/bin/env node
+// Pruebas de sincronización (bajada por cambios y subida de ventas sin conexión) contra una instancia NUEVA.
+const URL_ = process.env.PB_URL || 'http://127.0.0.1:8107';
+let pass = 0, fail = 0;
+const ok = (c, msg) => { if (c) { pass++; console.log('  ✔', msg); } else { fail++; console.log('  ✘', msg); } };
+async function api(method, path, { token, body } = {}) {
+  const res = await fetch(URL_ + path, { method, headers: { 'content-type': 'application/json', ...(token ? { authorization: token } : {}) }, body: body ? JSON.stringify(body) : undefined });
+  let data = null; try { data = await res.json(); } catch {}
+  return { status: res.status, data };
+}
+const code = (r) => Object.keys(r.data?.data || {})[0];
+const uuid = () => crypto.randomUUID();
+const login = async (e, p) => (await api('POST', '/api/collections/users/auth-with-password', { body: { identity: e, password: p } })).data;
+const SU = (await api('POST', '/api/collections/_superusers/auth-with-password', { body: { identity: process.env.SU_EMAIL, password: process.env.SU_PASS } })).data.token;
+const list = async (col, q = '', token = SU) => (await api('GET', `/api/collections/${col}/records?perPage=200${q}`, { token })).data.items;
+const one = async (col, filter, token = SU) => (await list(col, `&filter=${encodeURIComponent(filter)}`, token))[0];
+const post = (col, body, token = SU) => api('POST', `/api/collections/${col}/records`, { token, body });
+const patch = (col, id, body, token = SU) => api('PATCH', `/api/collections/${col}/records/${id}`, { token, body });
+const del = (col, id, token = SU) => api('DELETE', `/api/collections/${col}/records/${id}`, { token });
+const call = (m, p, token, body) => api(m, p, { token, body });
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+await api('POST', '/api/tpv/setup', { body: { business_name: 'Tienda Sync', email: 'dueno@y.mx', password: 'password-dueno', name: 'Ana' } });
+const tA = (await login('dueno@y.mx', 'password-dueno')).token;
+const loc = (await list('locations'))[0], cashier = (await list('cashiers'))[0];
+const unit = await one('measure_units', 'key="unit"');
+const defaultList = await one('price_lists', 'is_default=true');
+const perm = async (k) => (await one('permissions', `key="${k}"`)).id;
+await patch('license', (await list('license'))[0].id, { max_users: 20, max_branches: 3 });
+const loc2 = (await post('locations', { name: 'Sucursal 2', type: 'branch' }, SU)).data;
+const mkUser = async (email, perms, locs = [loc.id]) => {
+  await post('users', { email, password: 'password-uu-1', passwordConfirm: 'password-uu-1', name: email.split('@')[0], role: 'user', locations: locs, permissions: await Promise.all(perms.map(perm)) }, tA);
+  return (await login(email, 'password-uu-1')).token;
+};
+const tCaja = await mkUser('caja@y.mx', ['order.read', 'order.create']);
+const tGer = await mkUser('ger@y.mx', ['order.read', 'order.create', 'product.read_cost']);
+const tNo = await mkUser('nada@y.mx', ['order.read']);
+const mk = async (name, price, cost, stock) => {
+  const p = (await post('products', { name, type: 'product', sell_unit: unit.id, is_stockable: true, is_sellable: true }, tA)).data;
+  await post('product_costs', { product: p.id, cost, cost_type: 'net' }, tA);
+  await post('product_prices', { product: p.id, price_list: defaultList.id, min_quantity: 0, price }, tA);
+  await post('product_stocks', { product: p.id, location: loc.id, quantity: stock });
+  await post('product_stocks', { product: p.id, location: loc2.id, quantity: 7 });
+  return p;
+};
+const ref = await mk('Refresco', 15, 8, 100), jugo = await mk('Jugo', 50, 20, 2);
+const get = (path, token = tCaja) => call('GET', '/api/tpv/sync' + path, token);
+
+console.log('── configuración ──');
+let r = await get('/config');
+ok(r.status === 200 && r.data.locations.length === 1 && r.data.locations[0].id === loc.id, 'solo sus sucursales');
+ok(r.data.cashiers.length === 1 && r.data.price_lists.length === 1 && r.data.payment_methods.length === 5, 'cajas, listas y métodos de pago');
+ok(r.data.user.permissions.includes('order.create') && r.data.license.level === 'full' && r.data.settings && r.data.taxes.length === 21, 'permisos, licencia, ajustes e impuestos');
+ok(r.data.business.utc_offset_minutes !== undefined, 'datos del negocio');
+ok((await get('/config', undefined)).status === 401 || (await call('GET', '/api/tpv/sync/config', '')).status === 401, 'requiere sesión');
+
+console.log('── bajada por cambios ──');
+r = await get('/products?limit=1');
+ok(r.status === 200 && r.data.items.length === 1 && r.data.has_more === true && r.data.cursor.includes('|'), 'paginación con cursor');
+const p1 = r.data;
+r = await get(`/products?limit=10&cursor=${encodeURIComponent(p1.cursor)}`);
+ok(r.data.items.length === 1 && r.data.has_more === false && r.data.items[0].id !== p1.items[0].id, 'segunda página');
+const cur = r.data.cursor;
+const full = (await get('/products')).data.items.find((p) => p.name === 'Refresco');
+ok(full.prices.length === 1 && full.prices[0].price === 15 && full.cost === undefined, 'el producto trae sus precios (y no el costo sin permiso)');
+ok((await get('/products', tGer)).data.items.find((p) => p.name === 'Refresco').cost === 8, 'con product.read_cost trae el costo');
+r = await get(`/products?cursor=${encodeURIComponent(cur)}`);
+ok(r.data.items.length === 0 && r.data.has_more === false && r.data.cursor === cur, 'sin cambios: vacío y el mismo cursor');
+await sleep(30);
+await patch('product_prices', (await one('product_prices', `product="${ref.id}"`)).id, { price: 18 }, tA);
+r = await get(`/products?cursor=${encodeURIComponent(cur)}`);
+ok(r.data.items.length === 1 && r.data.items[0].id === ref.id && r.data.items[0].prices[0].price === 18, 'cambiar un precio reenvía el producto con el precio nuevo');
+let cur2 = r.data.cursor;
+await sleep(30);
+await post('product_prices', { product: ref.id, price_list: defaultList.id, min_quantity: 12, price: 13 }, tA);
+r = await get(`/products?cursor=${encodeURIComponent(cur2)}`);
+ok(r.data.items.length === 1 && r.data.items[0].prices.length === 2, 'un escalón nuevo también');
+cur2 = r.data.cursor;
+await sleep(30);
+await del('product_prices', (await one('product_prices', `product="${ref.id}" && min_quantity=12`)).id, tA);
+r = await get(`/products?cursor=${encodeURIComponent(cur2)}`);
+ok(r.data.items.length === 1 && r.data.items[0].prices.length === 1, 'borrar un precio (borrado duro) también se propaga');
+cur2 = r.data.cursor;
+await sleep(30);
+await patch('products', jugo.id, { deleted_at: '2026-01-01 00:00:00.000Z' }, tA);
+r = await get(`/products?cursor=${encodeURIComponent(cur2)}`);
+ok(r.data.items.length === 1 && r.data.items[0].deleted_at !== '', 'el borrado lógico viaja como registro con deleted_at');
+r = await get('/clients');
+ok(r.status === 200 && r.data.items.some((c) => c.type === 'general_public'), 'clientes (incluye Público en General)');
+ok((await get('/clients', tNo)).status === 403, 'clientes exige permiso');
+r = await get('/product_stocks');
+ok(r.data.items.length === 2 && r.data.items.every((s) => s.location === loc.id), 'existencias solo de sus sucursales');
+r = await call('GET', '/api/tpv/sync/product_stocks', tA);
+ok(r.data.items.length === 4, 'el admin recibe las de todas');
+ok((await get('/promotions')).status === 200 && (await get('/product_categories')).status === 200 && (await get('/product_brands')).status === 200, 'promociones, categorías y marcas');
+ok((await get('/orders')).status === 404, 'solo entidades permitidas (no ventas)');
+ok((await get('/products?cursor=abc')).status === 400, 'cursor inválido');
+
+console.log('── subida de ventas sin conexión ──');
+const body = (o = {}) => ({ request_id: uuid(), location: loc.id, cashier: cashier.id, items: [{ product: ref.id, quantity: 2 }], payments: [{ method: 'cash', total: 36 }], ...o });
+const old = new Date(Date.now() - 3 * 86400000).toISOString();
+const b1 = body({ made_at: old }), b2 = body({ items: [{ product: ref.id, quantity: 1 }], payments: [{ method: 'cash', total: 18 }] });
+r = await call('POST', '/api/tpv/sync/orders', tCaja, { orders: [b2, b1] });
+ok(r.status === 200 && r.data.ok === 2 && r.data.errors === 0, 'dos ventas aceptadas');
+ok(r.data.results[0].request_id === b1.request_id && r.data.results[0].order.order_number < r.data.results[1].order.order_number, 'se procesan en orden de made_at (la más vieja primero)');
+const o1 = await one('orders', `request_id="${b1.request_id}"`);
+ok(o1.is_offline === true && o1.made_at.startsWith(old.substring(0, 10)), 'quedan marcadas offline y conservan su fecha');
+r = await call('POST', '/api/tpv/sync/orders', tCaja, { orders: [b1] });
+ok(r.data.results[0].status === 'duplicate' && (await list('orders')).length === 2, 'reenviar la misma venta no la duplica');
+r = await call('POST', '/api/tpv/sync/orders', tCaja, { orders: [body({ items: [{ product: jugo.id, quantity: 1 }], payments: [{ method: 'cash', total: 50 }] }), body({ made_at: new Date(Date.now() - 40 * 86400000).toISOString() }), body({ items: [] })] });
+ok(r.data.ok === 0 && r.data.errors === 3, 'errores por venta, sin tumbar el lote');
+const byCode = (c) => r.data.results.find((x) => x.code === c);
+ok(byCode('product_not_sellable')?.retry === false, 'producto borrado: error permanente');
+ok(byCode('invalid_made_at') && byCode('invalid_items'), 'fecha de más de 30 días e items vacíos');
+r = await call('POST', '/api/tpv/sync/orders', tCaja, { orders: [body({ items: [{ product: ref.id, quantity: 500 }], payments: [{ method: 'cash', total: 9000 }] })] });
+ok(r.data.results[0].status === 'ok' && (await one('product_stocks', `product="${ref.id}" && location="${loc.id}"`)).quantity < 0, 'offline: la venta ya ocurrió, el inventario puede quedar en negativo');
+r = await call('POST', '/api/tpv/orders', tCaja, body({ items: [{ product: ref.id, quantity: 500 }], payments: [{ method: 'cash', total: 9000 }] }));
+ok(code(r) === 'insufficient_stock', 'pero por la ruta normal sigue validándose el inventario');
+await patch('product_stocks', (await one('product_stocks', `product="${ref.id}" && location="${loc.id}"`)).id, { quantity: 100 });
+r = await call('POST', '/api/tpv/orders', tCaja, body({ made_at: new Date(Date.now() - 3 * 86400000).toISOString(), is_offline: true }));
+ok(r.status === 200 && r.data.order.is_offline === true, 'la ruta normal acepta made_at de hasta 7 días');
+ok(code(await call('POST', '/api/tpv/orders', tCaja, body({ made_at: new Date(Date.now() - 10 * 86400000).toISOString() }))) === 'invalid_made_at', '…y no más de 7');
+ok((await call('POST', '/api/tpv/sync/orders', tNo, { orders: [body()] })).data.results[0].code === 'permission_denied', 'sin order.create cada venta falla');
+ok((await call('POST', '/api/tpv/sync/orders', tCaja, { orders: [] })).status === 400, 'lote vacío');
+ok((await call('POST', '/api/tpv/sync/orders', tCaja, { orders: Array.from({ length: 51 }, () => body()) })).status === 400, 'máximo 50 por envío');
+await patch('license', (await list('license'))[0].id, { status: 'past_due' });
+r = await call('POST', '/api/tpv/sync/orders', tCaja, { orders: [body()] });
+ok(r.data.results[0].status === 'error' && r.data.results[0].retry === true && r.data.results[0].code === 'past_due', 'licencia en solo lectura: error reintentable');
+
+console.log(`\n${pass} correctas, ${fail} con falla`);
+process.exit(fail ? 1 : 0);

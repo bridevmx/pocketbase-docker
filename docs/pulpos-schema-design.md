@@ -113,6 +113,8 @@ Pulpos aplica permisos y varias reglas de negocio solo en la interfaz: probé qu
 
 **Hecho — ventas** ([`pulpos-sales-api.md`](pulpos-sales-api.md)): crear venta (contado, mixta, crédito, pedido guardado, offline con `request_id`), cobro posterior, entrega, abonos (uno o varios), reembolsos, cancelación y borrado, con inventario FEFO, lealtad, descuentos y las reglas de negocio validadas en servidor.
 
+**Hecho — sincronización sin conexión** ([`pulpos-sync-api.md`](pulpos-sync-api.md)): configuración, bajada por cambios con cursor y subida de ventas en lote (idempotente, por orden de fecha). **CI**: `.github/workflows/test.yml`.
+
 **Hecho — impuestos y promociones** (en [`pulpos-sales-api.md`](pulpos-sales-api.md#impuestos-y-promociones)): desglose de impuestos incluidos, reporte de impuestos, promociones automáticas y manuales (partida, 2x1/3x2/…, avanzada, carrito), vista previa `dry_run`.
 
 **Pendiente**: ninguna fase del plan. Quedan las limitaciones de las notas (supuestos marcados en cada documento de API).

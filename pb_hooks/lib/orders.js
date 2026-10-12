@@ -99,8 +99,11 @@ function serialize(app, order, ctx) {
 }
 
 // ───────── creación ─────────
-function createOrder(app, user, body) {
+// opts.offlineSync (solo lo pone la ruta de sincronización): la venta ya ocurrió sin conexión, así que se acepta
+// aunque deje el inventario en negativo y con una fecha de hasta 30 días atrás.
+function createOrder(app, user, body, opts) {
   const ctx = U.userCtx(app, user);
+  ctx.offlineSync = !!(opts && opts.offlineSync);
   U.need(ctx, 'order.create', 'No tienes permiso para vender');
   LIC.assertWritable(app);
 
@@ -288,7 +291,7 @@ function build(tx, ctx, body, requestId) {
   // ── entrega: se descuenta inventario si se entrega ahora; si no, queda comprometido
   const deliver = origin === 'pos' && body.deliver_products !== false;
   if (origin === 'pos' && body.deliver_products === false) U.need(ctx, 'order.postpone_products_delivery');
-  const allowOut = !!(st && st.getBool('allow_selling_out_of_stock'));
+  const allowOut = !!(st && st.getBool('allow_selling_out_of_stock')) || !!ctx.offlineSync;
 
   // ── folio por serie (primer write de la transacción: serializa ventas concurrentes)
   let series = cashier.getString('order_series') ? tx.findRecordById('order_series', cashier.getString('order_series')) : U.first(tx, 'order_series', 'is_default = true && deleted_at = ""');
@@ -325,7 +328,7 @@ function build(tx, ctx, body, requestId) {
     if (!body.made_at) return U.nowStr();
     const d = new Date(String(body.made_at).replace(' ', 'T'));
     const diff = Date.now() - d.getTime();
-    if (isNaN(d.getTime()) || diff < -300000 || diff > 7 * 86400000) throw U.fail(400, 'made_at fuera del rango permitido', 'invalid_made_at');
+    if (isNaN(d.getTime()) || diff < -300000 || diff > (ctx.offlineSync ? 30 : 7) * 86400000) throw U.fail(400, 'made_at fuera del rango permitido', 'invalid_made_at');
     return U.nowStr(d);
   })();
 
@@ -340,7 +343,7 @@ function build(tx, ctx, body, requestId) {
     shipping_status: deliver ? 'completed' : 'pending', way_of_payment: body.way_of_payment || 'to_agree_after_purchase',
     shipping_method: body.shipping_method || 'to_agree_after_purchase', subtotal, discounts, original_total: base, total,
     with_taxes: body.with_taxes !== false, delivery_cost: deliveryCost, loyalty_reward_percentage: loyaltyPct, notes: body.notes || '',
-    made_at: madeAt, request_id: requestId, is_offline: !!body.is_offline, created_by: user.id,
+    made_at: madeAt, request_id: requestId, is_offline: !!ctx.offlineSync || !!body.is_offline, created_by: user.id,
   });
 
   for (const l of lines) {
