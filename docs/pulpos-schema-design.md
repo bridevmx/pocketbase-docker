@@ -105,6 +105,8 @@ Pulpos aplica permisos y varias reglas de negocio solo en la interfaz: probé qu
 
 **Hecho — inventario** ([`pulpos-inventory-api.md`](pulpos-inventory-api.md)): ajustes (carga inicial, conteos), traspasos enviar/recibir, compras y gastos (costo promedio ponderado, deuda, pagos en efectivo desde caja), fabricación.
 
+**Hecho — analítica** ([`pulpos-analytics-api.md`](pulpos-analytics-api.md)): ventas por periodo/producto/categoría/cliente/vendedor/pago/sucursal, inventario, compras, gastos y finanzas.
+
 **Hecho — tienda en línea** ([`pulpos-storefront-api.md`](pulpos-storefront-api.md)): config, categorías, búsqueda, detalle, validar carrito, pedidos (precios y stock comprometido en servidor), seguimiento, variantes y catálogo por cliente.
 
 **Hecho — cotizaciones** (en [`pulpos-sales-api.md`](pulpos-sales-api.md#cotizaciones)): crear, editar, consultar, borrar y convertir en venta.
@@ -115,7 +117,6 @@ Pulpos aplica permisos y varias reglas de negocio solo en la interfaz: probé qu
 
 | Fase | Contenido |
 |---|---|
-| Analítica | ventas por periodo/producto/cliente/categoría/vendedor/pago, inventario y margen |
 | Impuestos y promociones | `with_taxes`, promociones automáticas |
 
 ## 8. Validación

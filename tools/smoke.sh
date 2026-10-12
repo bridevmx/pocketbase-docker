@@ -25,4 +25,5 @@ run smoke-inventory.mjs 8101
 run smoke-cashier.mjs 8102
 run smoke-quotations.mjs 8103
 run smoke-storefront.mjs 8104
+run smoke-analytics.mjs 8105
 exit $FAILED
