@@ -1,10 +1,10 @@
 # Schema de PocketBase (generado)
 
-Generado por `tools/build-schema.mjs` desde `schema/*.mjs`. **95 colecciones**, sin campos `json`.
+Generado por `tools/build-schema.mjs` desde `schema/*.mjs`. **94 colecciones**, sin campos `json`.
 
 Tipos: `text` `number` `bool` `date` `select(...)` `file` `rel→colección` (`[]` = relación múltiple). `deleted_at` = borrado lógico.
 
-## `accounts`
+## `business`
 
 *reglas propias*
 
@@ -18,10 +18,31 @@ Tipos: `text` `number` `bool` `date` `select(...)` `file` `rel→colección` (`[
 | `email` | email |
 | `logo` | file |
 | `owner` | rel→users |
-| `plan` | rel→plans |
+
+## `license`
+
+*reglas propias*
+
+| campo | tipo |
+|---|---|
+| `plan_code` | text |
+| `plan_name` | text |
 | `status` * | select(trial\|active\|past_due\|suspended\|cancelled) |
 | `trial_ends_at` | date |
 | `paid_until` | date |
+| `max_users` | number |
+| `max_branches` | number |
+| `max_warehouses` | number |
+
+## `license_features`
+
+*reglas propias*
+
+| campo | tipo |
+|---|---|
+| `feature` * | select(manufacturing\|bank_reconciliations\|whatsapp_sales_channel\|catalog_plus\|white_label\|extra_branch\|extra_user\|ai_seller) |
+
+Únicos: (feature)
 
 ## `users` (extiende la colección auth `users`)
 
@@ -32,9 +53,8 @@ Tipos: `text` `number` `bool` `date` `select(...)` `file` `rel→colección` (`[
 | `surname` | text |
 | `phone` | text |
 | `role` * | select(admin\|user) |
-| `is_account_owner` | bool |
+| `is_owner` | bool |
 | `deleted_at` | date |
-| `account` * | rel→accounts |
 | `default_price_list` | rel→price_lists |
 | `locations` | rel→locations [] |
 | `cashiers` | rel→cashiers [] |
@@ -53,32 +73,6 @@ Tipos: `text` `number` `bool` `date` `select(...)` `file` `rel→colección` (`[
 | `requires` | rel→permissions [] |
 
 Únicos: (key)
-
-## `plans`
-
-*catálogo global (solo lectura)*
-
-| campo | tipo |
-|---|---|
-| `code` * | text |
-| `name` * | text |
-| `max_users` | number |
-| `max_branches` | number |
-| `max_warehouses` | number |
-| `position` | number |
-
-Únicos: (code)
-
-## `plan_features`
-
-*catálogo global (solo lectura)*
-
-| campo | tipo |
-|---|---|
-| `plan` * | rel→plans |
-| `feature` * | select(manufacturing\|bank_reconciliations\|whatsapp_sales_channel\|catalog_plus\|white_label\|extra_branch\|extra_user\|ai_seller) |
-
-Únicos: (plan, feature)
 
 ## `measure_units`
 
@@ -99,7 +93,6 @@ Tipos: `text` `number` `bool` `date` `select(...)` `file` `rel→colección` (`[
 
 | campo | tipo |
 |---|---|
-| `account` | rel→accounts |
 | `type` * | select(vat\|ieps\|isr) |
 | `name` | text |
 | `percentage` | number |
@@ -112,7 +105,6 @@ Tipos: `text` `number` `bool` `date` `select(...)` `file` `rel→colección` (`[
 
 | campo | tipo |
 |---|---|
-| `account` * | rel→accounts |
 | `street` | text |
 | `ext_number` | text |
 | `int_number` | text |
@@ -129,7 +121,6 @@ Tipos: `text` `number` `bool` `date` `select(...)` `file` `rel→colección` (`[
 
 | campo | tipo |
 |---|---|
-| `account` * | rel→accounts |
 | `name` * | text |
 | `type` * | select(branch\|warehouse) |
 | `is_default` | bool |
@@ -145,14 +136,13 @@ Tipos: `text` `number` `bool` `date` `select(...)` `file` `rel→colección` (`[
 
 | campo | tipo |
 |---|---|
-| `account` * | rel→accounts |
 | `name` * | text |
 | `is_default` | bool |
 | `catalog_path` | text |
 | `catalog_hidden` | bool |
 | `deleted_at` | date |
 
-Únicos: (account, catalog_path) donde catalog_path != "" AND deleted_at = ""
+Únicos: (catalog_path) donde catalog_path != "" AND deleted_at = ""
 
 ## `order_series`
 
@@ -160,7 +150,6 @@ Tipos: `text` `number` `bool` `date` `select(...)` `file` `rel→colección` (`[
 
 | campo | tipo |
 |---|---|
-| `account` * | rel→accounts |
 | `name` * | text |
 | `location` | rel→locations |
 | `next_number` | number |
@@ -173,7 +162,6 @@ Tipos: `text` `number` `bool` `date` `select(...)` `file` `rel→colección` (`[
 
 | campo | tipo |
 |---|---|
-| `account` * | rel→accounts |
 | `name` * | text |
 | `location` * | rel→locations |
 | `order_series` | rel→order_series |
@@ -186,19 +174,17 @@ Tipos: `text` `number` `bool` `date` `select(...)` `file` `rel→colección` (`[
 
 | campo | tipo |
 |---|---|
-| `account` * | rel→accounts |
 | `user` | rel→users |
 | `name` * | text |
 | `surname` | text |
 | `deleted_at` | date |
 
-## `account_settings`
+## `pos_settings`
 
-*configuración (admin escribe)*
+*reglas propias*
 
 | campo | tipo |
 |---|---|
-| `account` * | rel→accounts |
 | `allow_personalized_prices` | bool |
 | `white_label_branding` | bool |
 | `default_client_debt_limit` | number |
@@ -227,43 +213,26 @@ Tipos: `text` `number` `bool` `date` `select(...)` `file` `rel→colección` (`[
 | `ticket_print_duplicate` | bool |
 | `ticket_logo` | file |
 
-Únicos: (account)
-
-## `account_features`
-
-*reglas propias*
-
-| campo | tipo |
-|---|---|
-| `account` * | rel→accounts |
-| `feature` * | select(manufacturing\|bank_reconciliations\|whatsapp_sales_channel\|catalog_plus\|white_label\|extra_branch\|extra_user\|ai_seller) |
-| `enabled` | bool |
-| `quantity` | number |
-
-Únicos: (account, feature)
-
-## `account_units`
+## `enabled_units`
 
 *configuración (admin escribe)*
 
 | campo | tipo |
 |---|---|
-| `account` * | rel→accounts |
 | `unit` * | rel→measure_units |
 
-Únicos: (account, unit)
+Únicos: (unit)
 
-## `account_payment_methods`
+## `enabled_payment_methods`
 
 *configuración (admin escribe)*
 
 | campo | tipo |
 |---|---|
-| `account` * | rel→accounts |
 | `method` * | select(cash\|card\|transfer\|check\|credit\|debit_card\|payment_intermediary\|electronic_wallet\|electronic_money\|service_card\|food_voucher) |
 | `enabled` | bool |
 
-Únicos: (account, method)
+Únicos: (method)
 
 ## `custom_payment_methods`
 
@@ -271,7 +240,6 @@ Tipos: `text` `number` `bool` `date` `select(...)` `file` `rel→colección` (`[
 
 | campo | tipo |
 |---|---|
-| `account` * | rel→accounts |
 | `name` * | text |
 | `method` * | select(cash\|card\|transfer\|check\|credit\|debit_card\|payment_intermediary\|electronic_wallet\|electronic_money\|service_card\|food_voucher) |
 | `allows_income` | bool |
@@ -285,11 +253,10 @@ Tipos: `text` `number` `bool` `date` `select(...)` `file` `rel→colección` (`[
 
 | campo | tipo |
 |---|---|
-| `account` * | rel→accounts |
 | `key` * | text |
 | `value` | number |
 
-Únicos: (account, key)
+Únicos: (key)
 
 ## `product_categories`
 
@@ -297,7 +264,6 @@ Tipos: `text` `number` `bool` `date` `select(...)` `file` `rel→colección` (`[
 
 | campo | tipo |
 |---|---|
-| `account` * | rel→accounts |
 | `name` * | text |
 | `photo` | file |
 | `deleted_at` | date |
@@ -308,7 +274,6 @@ Tipos: `text` `number` `bool` `date` `select(...)` `file` `rel→colección` (`[
 
 | campo | tipo |
 |---|---|
-| `account` * | rel→accounts |
 | `name` * | text |
 | `deleted_at` | date |
 
@@ -318,7 +283,6 @@ Tipos: `text` `number` `bool` `date` `select(...)` `file` `rel→colección` (`[
 
 | campo | tipo |
 |---|---|
-| `account` * | rel→accounts |
 | `name` * | text |
 | `slug` | text |
 | `description` | text |
@@ -349,7 +313,6 @@ Tipos: `text` `number` `bool` `date` `select(...)` `file` `rel→colección` (`[
 
 | campo | tipo |
 |---|---|
-| `account` * | rel→accounts |
 | `product` * | rel→products |
 | `cost` | number |
 | `cost_type` * | select(net\|gross) |
@@ -362,7 +325,6 @@ Tipos: `text` `number` `bool` `date` `select(...)` `file` `rel→colección` (`[
 
 | campo | tipo |
 |---|---|
-| `account` * | rel→accounts |
 | `product` * | rel→products |
 | `price_list` * | rel→price_lists |
 | `min_quantity` | number |
@@ -376,7 +338,6 @@ Tipos: `text` `number` `bool` `date` `select(...)` `file` `rel→colección` (`[
 
 | campo | tipo |
 |---|---|
-| `account` * | rel→accounts |
 | `product` * | rel→products |
 | `name` * | text |
 | `position` | number |
@@ -389,7 +350,6 @@ Tipos: `text` `number` `bool` `date` `select(...)` `file` `rel→colección` (`[
 
 | campo | tipo |
 |---|---|
-| `account` * | rel→accounts |
 | `option` * | rel→variant_options |
 | `value` * | text |
 | `position` | number |
@@ -402,7 +362,6 @@ Tipos: `text` `number` `bool` `date` `select(...)` `file` `rel→colección` (`[
 
 | campo | tipo |
 |---|---|
-| `account` * | rel→accounts |
 | `product` * | rel→products |
 | `option_value` * | rel→variant_option_values |
 
@@ -414,7 +373,6 @@ Tipos: `text` `number` `bool` `date` `select(...)` `file` `rel→colección` (`[
 
 | campo | tipo |
 |---|---|
-| `account` * | rel→accounts |
 | `combo` * | rel→products |
 | `item` * | rel→products |
 | `quantity` | number |
@@ -427,7 +385,6 @@ Tipos: `text` `number` `bool` `date` `select(...)` `file` `rel→colección` (`[
 
 | campo | tipo |
 |---|---|
-| `account` * | rel→accounts |
 | `product` * | rel→products |
 | `material` * | rel→products |
 | `quantity` | number |
@@ -441,7 +398,6 @@ Tipos: `text` `number` `bool` `date` `select(...)` `file` `rel→colección` (`[
 
 | campo | tipo |
 |---|---|
-| `account` * | rel→accounts |
 | `product` * | rel→products |
 | `location` * | rel→locations |
 | `placement` | text |
@@ -454,7 +410,6 @@ Tipos: `text` `number` `bool` `date` `select(...)` `file` `rel→colección` (`[
 
 | campo | tipo |
 |---|---|
-| `account` * | rel→accounts |
 | `product` * | rel→products |
 | `location` * | rel→locations |
 | `quantity` | number |
@@ -468,7 +423,6 @@ Tipos: `text` `number` `bool` `date` `select(...)` `file` `rel→colección` (`[
 
 | campo | tipo |
 |---|---|
-| `account` * | rel→accounts |
 | `product` * | rel→products |
 | `code` * | text |
 | `expires_at` | date |
@@ -483,7 +437,6 @@ Tipos: `text` `number` `bool` `date` `select(...)` `file` `rel→colección` (`[
 
 | campo | tipo |
 |---|---|
-| `account` * | rel→accounts |
 | `batch` * | rel→batches |
 | `location` * | rel→locations |
 | `quantity` | number |
@@ -497,7 +450,6 @@ Tipos: `text` `number` `bool` `date` `select(...)` `file` `rel→colección` (`[
 
 | campo | tipo |
 |---|---|
-| `account` * | rel→accounts |
 | `product` * | rel→products |
 | `batch` | rel→batches |
 | `location` * | rel→locations |
@@ -518,7 +470,6 @@ Tipos: `text` `number` `bool` `date` `select(...)` `file` `rel→colección` (`[
 
 | campo | tipo |
 |---|---|
-| `account` * | rel→accounts |
 | `number` | number |
 | `origin` * | rel→locations |
 | `destination` * | rel→locations |
@@ -535,7 +486,6 @@ Tipos: `text` `number` `bool` `date` `select(...)` `file` `rel→colección` (`[
 
 | campo | tipo |
 |---|---|
-| `account` * | rel→accounts |
 | `transfer` * | rel→transfers |
 | `product` * | rel→products |
 | `quantity_sent` | number |
@@ -548,7 +498,6 @@ Tipos: `text` `number` `bool` `date` `select(...)` `file` `rel→colección` (`[
 
 | campo | tipo |
 |---|---|
-| `account` * | rel→accounts |
 | `transfer_item` * | rel→transfer_items |
 | `batch` * | rel→batches |
 | `quantity_sent` | number |
@@ -560,7 +509,6 @@ Tipos: `text` `number` `bool` `date` `select(...)` `file` `rel→colección` (`[
 
 | campo | tipo |
 |---|---|
-| `account` * | rel→accounts |
 | `transfer` * | rel→transfers |
 | `type` * | select(created\|sent\|received\|updated_while_draft\|comment) |
 | `content` | text |
@@ -572,7 +520,6 @@ Tipos: `text` `number` `bool` `date` `select(...)` `file` `rel→colección` (`[
 
 | campo | tipo |
 |---|---|
-| `account` * | rel→accounts |
 | `number` | number |
 | `location` * | rel→locations |
 | `type` * | select(entry\|exit\|count) |
@@ -590,7 +537,6 @@ Tipos: `text` `number` `bool` `date` `select(...)` `file` `rel→colección` (`[
 
 | campo | tipo |
 |---|---|
-| `account` * | rel→accounts |
 | `stock_adjustment` * | rel→stock_adjustments |
 | `product` * | rel→products |
 | `unit` | rel→measure_units |
@@ -605,7 +551,6 @@ Tipos: `text` `number` `bool` `date` `select(...)` `file` `rel→colección` (`[
 
 | campo | tipo |
 |---|---|
-| `account` * | rel→accounts |
 | `item` * | rel→stock_adjustment_items |
 | `batch` | rel→batches |
 | `code` | text |
@@ -619,7 +564,6 @@ Tipos: `text` `number` `bool` `date` `select(...)` `file` `rel→colección` (`[
 
 | campo | tipo |
 |---|---|
-| `account` * | rel→accounts |
 | `stock_adjustment` * | rel→stock_adjustments |
 | `type` * | select(created_as_draft\|created_as_completed\|updated_while_draft\|completed\|comment) |
 | `content` | text |
@@ -631,7 +575,6 @@ Tipos: `text` `number` `bool` `date` `select(...)` `file` `rel→colección` (`[
 
 | campo | tipo |
 |---|---|
-| `account` * | rel→accounts |
 | `number` | number |
 | `product` * | rel→products |
 | `location` * | rel→locations |
@@ -652,7 +595,6 @@ Tipos: `text` `number` `bool` `date` `select(...)` `file` `rel→colección` (`[
 
 | campo | tipo |
 |---|---|
-| `account` * | rel→accounts |
 | `manufacturing_order` * | rel→manufacturing_orders |
 | `material` * | rel→products |
 | `quantity` | number |
@@ -664,7 +606,6 @@ Tipos: `text` `number` `bool` `date` `select(...)` `file` `rel→colección` (`[
 
 | campo | tipo |
 |---|---|
-| `account` * | rel→accounts |
 | `manufacturing_order` * | rel→manufacturing_orders |
 | `type` * | select(created\|started\|finished\|cancelled\|comment\|use_material_stock\|return_material_stock) |
 | `content` | text |
@@ -676,7 +617,6 @@ Tipos: `text` `number` `bool` `date` `select(...)` `file` `rel→colección` (`[
 
 | campo | tipo |
 |---|---|
-| `account` * | rel→accounts |
 | `friendly_id` | text |
 | `type` * | select(general_public\|account_client) |
 | `name` * | text |
@@ -701,7 +641,6 @@ Tipos: `text` `number` `bool` `date` `select(...)` `file` `rel→colección` (`[
 
 | campo | tipo |
 |---|---|
-| `account` * | rel→accounts |
 | `order_number` | number |
 | `friendly_id` | text |
 | `series` | rel→order_series |
@@ -738,7 +677,6 @@ Tipos: `text` `number` `bool` `date` `select(...)` `file` `rel→colección` (`[
 
 | campo | tipo |
 |---|---|
-| `account` * | rel→accounts |
 | `order` * | rel→orders |
 | `product` | rel→products |
 | `name` * | text |
@@ -759,7 +697,6 @@ Tipos: `text` `number` `bool` `date` `select(...)` `file` `rel→colección` (`[
 
 | campo | tipo |
 |---|---|
-| `account` * | rel→accounts |
 | `order_item` * | rel→order_items |
 | `unit_cost` | number |
 | `total_cost` | number |
@@ -772,7 +709,6 @@ Tipos: `text` `number` `bool` `date` `select(...)` `file` `rel→colección` (`[
 
 | campo | tipo |
 |---|---|
-| `account` * | rel→accounts |
 | `order_item` * | rel→order_items |
 | `tax` * | rel→taxes |
 | `type` * | select(vat\|ieps\|isr) |
@@ -785,7 +721,6 @@ Tipos: `text` `number` `bool` `date` `select(...)` `file` `rel→colección` (`[
 
 | campo | tipo |
 |---|---|
-| `account` * | rel→accounts |
 | `type` * | select(percentage\|fixed) |
 | `value` | number |
 | `title` | text |
@@ -797,7 +732,6 @@ Tipos: `text` `number` `bool` `date` `select(...)` `file` `rel→colección` (`[
 
 | campo | tipo |
 |---|---|
-| `account` * | rel→accounts |
 | `order_item` * | rel→order_items |
 | `batch` * | rel→batches |
 | `quantity` | number |
@@ -808,7 +742,6 @@ Tipos: `text` `number` `bool` `date` `select(...)` `file` `rel→colección` (`[
 
 | campo | tipo |
 |---|---|
-| `account` * | rel→accounts |
 | `order` * | rel→orders |
 | `type` * | select(percentage\|fixed) |
 | `amount` | number |
@@ -822,7 +755,6 @@ Tipos: `text` `number` `bool` `date` `select(...)` `file` `rel→colección` (`[
 
 | campo | tipo |
 |---|---|
-| `account` * | rel→accounts |
 | `client` | rel→clients |
 | `created_by` | rel→users |
 | `deleted_at` | date |
@@ -833,7 +765,6 @@ Tipos: `text` `number` `bool` `date` `select(...)` `file` `rel→colección` (`[
 
 | campo | tipo |
 |---|---|
-| `account` * | rel→accounts |
 | `order` * | rel→orders |
 | `method` * | select(cash\|card\|transfer\|check\|credit\|debit_card\|payment_intermediary\|electronic_wallet\|electronic_money\|service_card\|food_voucher) |
 | `custom_payment_method` | rel→custom_payment_methods |
@@ -853,7 +784,6 @@ Tipos: `text` `number` `bool` `date` `select(...)` `file` `rel→colección` (`[
 
 | campo | tipo |
 |---|---|
-| `account` * | rel→accounts |
 | `order` * | rel→orders |
 | `original_debt` | number |
 | `current_debt` | number |
@@ -868,7 +798,6 @@ Tipos: `text` `number` `bool` `date` `select(...)` `file` `rel→colección` (`[
 
 | campo | tipo |
 |---|---|
-| `account` * | rel→accounts |
 | `order` * | rel→orders |
 | `reason` * | select(change_of_mind\|expired_product\|damaged_goods\|wrong_product\|wrong_variant\|other) |
 | `total_refunded` | number |
@@ -882,7 +811,6 @@ Tipos: `text` `number` `bool` `date` `select(...)` `file` `rel→colección` (`[
 
 | campo | tipo |
 |---|---|
-| `account` * | rel→accounts |
 | `refund` * | rel→order_refunds |
 | `order_item` * | rel→order_items |
 | `quantity_refunded` | number |
@@ -893,7 +821,6 @@ Tipos: `text` `number` `bool` `date` `select(...)` `file` `rel→colección` (`[
 
 | campo | tipo |
 |---|---|
-| `account` * | rel→accounts |
 | `refund_item` * | rel→order_refund_items |
 | `batch` * | rel→batches |
 | `quantity` | number |
@@ -904,7 +831,6 @@ Tipos: `text` `number` `bool` `date` `select(...)` `file` `rel→colección` (`[
 
 | campo | tipo |
 |---|---|
-| `account` * | rel→accounts |
 | `refund` * | rel→order_refunds |
 | `method` * | select(cash\|card\|transfer\|check\|credit\|debit_card\|payment_intermediary\|electronic_wallet\|electronic_money\|service_card\|food_voucher) |
 | `custom_payment_method` | rel→custom_payment_methods |
@@ -917,7 +843,6 @@ Tipos: `text` `number` `bool` `date` `select(...)` `file` `rel→colección` (`[
 
 | campo | tipo |
 |---|---|
-| `account` * | rel→accounts |
 | `order` * | rel→orders |
 | `type` * | select(product_delivery\|products_committed\|online_payment\|cancel\|refund_items\|refund_items_returned_items\|refund_payment\|refund_cancelled_debt\|comment) |
 | `user` | rel→users |
@@ -930,7 +855,6 @@ Tipos: `text` `number` `bool` `date` `select(...)` `file` `rel→colección` (`[
 
 | campo | tipo |
 |---|---|
-| `account` * | rel→accounts |
 | `number` | number |
 | `friendly_id` | text |
 | `status` * | select(created\|sold) |
@@ -956,7 +880,6 @@ Tipos: `text` `number` `bool` `date` `select(...)` `file` `rel→colección` (`[
 
 | campo | tipo |
 |---|---|
-| `account` * | rel→accounts |
 | `quotation` * | rel→quotations |
 | `product` | rel→products |
 | `is_manual` | bool |
@@ -979,7 +902,6 @@ Tipos: `text` `number` `bool` `date` `select(...)` `file` `rel→colección` (`[
 
 | campo | tipo |
 |---|---|
-| `account` * | rel→accounts |
 | `quotation_item` * | rel→quotation_items |
 | `tax` * | rel→taxes |
 | `percentage` | number |
@@ -990,7 +912,6 @@ Tipos: `text` `number` `bool` `date` `select(...)` `file` `rel→colección` (`[
 
 | campo | tipo |
 |---|---|
-| `account` * | rel→accounts |
 | `type` * | select(percentage\|fixed) |
 | `value` | number |
 | `title` | text |
@@ -1002,7 +923,6 @@ Tipos: `text` `number` `bool` `date` `select(...)` `file` `rel→colección` (`[
 
 | campo | tipo |
 |---|---|
-| `account` * | rel→accounts |
 | `quotation` * | rel→quotations |
 | `type` * | select(percentage\|fixed) |
 | `amount` | number |
@@ -1015,7 +935,6 @@ Tipos: `text` `number` `bool` `date` `select(...)` `file` `rel→colección` (`[
 
 | campo | tipo |
 |---|---|
-| `account` * | rel→accounts |
 | `quotation` * | rel→quotations |
 | `type` * | select(created\|updated\|sold\|comment) |
 | `content` | text |
@@ -1027,7 +946,6 @@ Tipos: `text` `number` `bool` `date` `select(...)` `file` `rel→colección` (`[
 
 | campo | tipo |
 |---|---|
-| `account` * | rel→accounts |
 | `name` * | text |
 | `type` * | select(cart_total\|single_target\|multi_target\|multi_target_advanced) |
 | `application` * | select(manual\|automatic) |
@@ -1054,7 +972,6 @@ Tipos: `text` `number` `bool` `date` `select(...)` `file` `rel→colección` (`[
 
 | campo | tipo |
 |---|---|
-| `account` * | rel→accounts |
 | `promotion` * | rel→promotions |
 | `role` * | select(single\|trigger\|discounted) |
 | `product` | rel→products |
@@ -1066,7 +983,6 @@ Tipos: `text` `number` `bool` `date` `select(...)` `file` `rel→colección` (`[
 
 | campo | tipo |
 |---|---|
-| `account` * | rel→accounts |
 | `promotion` * | rel→promotions |
 | `client` * | rel→clients |
 
@@ -1078,7 +994,6 @@ Tipos: `text` `number` `bool` `date` `select(...)` `file` `rel→colección` (`[
 
 | campo | tipo |
 |---|---|
-| `account` * | rel→accounts |
 | `promotion` * | rel→promotions |
 | `weekday` * | select(mon\|tue\|wed\|thu\|fri\|sat\|sun) |
 
@@ -1090,7 +1005,6 @@ Tipos: `text` `number` `bool` `date` `select(...)` `file` `rel→colección` (`[
 
 | campo | tipo |
 |---|---|
-| `account` * | rel→accounts |
 | `reward_percentage` | number |
 | `min_cart_total` | number |
 | `deactivated_at` | date |
@@ -1105,7 +1019,6 @@ Tipos: `text` `number` `bool` `date` `select(...)` `file` `rel→colección` (`[
 
 | campo | tipo |
 |---|---|
-| `account` * | rel→accounts |
 | `program` * | rel→loyalty_programs |
 | `product` * | rel→products |
 | `reward_percentage` | number |
@@ -1118,7 +1031,6 @@ Tipos: `text` `number` `bool` `date` `select(...)` `file` `rel→colección` (`[
 
 | campo | tipo |
 |---|---|
-| `account` * | rel→accounts |
 | `program` * | rel→loyalty_programs |
 | `category` * | rel→product_categories |
 | `reward_percentage` | number |
@@ -1131,7 +1043,6 @@ Tipos: `text` `number` `bool` `date` `select(...)` `file` `rel→colección` (`[
 
 | campo | tipo |
 |---|---|
-| `account` * | rel→accounts |
 | `client` * | rel→clients |
 | `previous_quantity` | number |
 | `current_quantity` | number |
@@ -1146,7 +1057,6 @@ Tipos: `text` `number` `bool` `date` `select(...)` `file` `rel→colección` (`[
 
 | campo | tipo |
 |---|---|
-| `account` * | rel→accounts |
 | `name` * | text |
 | `contact_name` | text |
 | `contact_phone` | text |
@@ -1159,7 +1069,6 @@ Tipos: `text` `number` `bool` `date` `select(...)` `file` `rel→colección` (`[
 
 | campo | tipo |
 |---|---|
-| `account` * | rel→accounts |
 | `number` | number |
 | `status` * | select(draft\|completed) |
 | `provider` | rel→providers |
@@ -1180,7 +1089,6 @@ Tipos: `text` `number` `bool` `date` `select(...)` `file` `rel→colección` (`[
 
 | campo | tipo |
 |---|---|
-| `account` * | rel→accounts |
 | `purchase` * | rel→purchases |
 | `product` * | rel→products |
 | `quantity` | number |
@@ -1196,7 +1104,6 @@ Tipos: `text` `number` `bool` `date` `select(...)` `file` `rel→colección` (`[
 
 | campo | tipo |
 |---|---|
-| `account` * | rel→accounts |
 | `purchase_item` * | rel→purchase_items |
 | `tax` * | rel→taxes |
 | `percentage` | number |
@@ -1207,7 +1114,6 @@ Tipos: `text` `number` `bool` `date` `select(...)` `file` `rel→colección` (`[
 
 | campo | tipo |
 |---|---|
-| `account` * | rel→accounts |
 | `purchase_item` * | rel→purchase_items |
 | `batch` * | rel→batches |
 | `quantity` | number |
@@ -1218,7 +1124,6 @@ Tipos: `text` `number` `bool` `date` `select(...)` `file` `rel→colección` (`[
 
 | campo | tipo |
 |---|---|
-| `account` * | rel→accounts |
 | `purchase` * | rel→purchases |
 | `original_debt` | number |
 | `current_debt` | number |
@@ -1232,7 +1137,6 @@ Tipos: `text` `number` `bool` `date` `select(...)` `file` `rel→colección` (`[
 
 | campo | tipo |
 |---|---|
-| `account` * | rel→accounts |
 | `purchase` * | rel→purchases |
 | `method` * | select(cash\|card\|transfer\|check\|credit\|debit_card\|payment_intermediary\|electronic_wallet\|electronic_money\|service_card\|food_voucher) |
 | `custom_payment_method` | rel→custom_payment_methods |
@@ -1247,7 +1151,6 @@ Tipos: `text` `number` `bool` `date` `select(...)` `file` `rel→colección` (`[
 
 | campo | tipo |
 |---|---|
-| `account` * | rel→accounts |
 | `number` | number |
 | `concept` * | text |
 | `made_at` * | date |
@@ -1267,7 +1170,6 @@ Tipos: `text` `number` `bool` `date` `select(...)` `file` `rel→colección` (`[
 
 | campo | tipo |
 |---|---|
-| `account` * | rel→accounts |
 | `expense` * | rel→expenses |
 | `tax` * | rel→taxes |
 | `percentage` | number |
@@ -1278,7 +1180,6 @@ Tipos: `text` `number` `bool` `date` `select(...)` `file` `rel→colección` (`[
 
 | campo | tipo |
 |---|---|
-| `account` * | rel→accounts |
 | `expense` * | rel→expenses |
 | `original_debt` | number |
 | `current_debt` | number |
@@ -1292,7 +1193,6 @@ Tipos: `text` `number` `bool` `date` `select(...)` `file` `rel→colección` (`[
 
 | campo | tipo |
 |---|---|
-| `account` * | rel→accounts |
 | `expense` * | rel→expenses |
 | `method` * | select(cash\|card\|transfer\|check\|credit\|debit_card\|payment_intermediary\|electronic_wallet\|electronic_money\|service_card\|food_voucher) |
 | `custom_payment_method` | rel→custom_payment_methods |
@@ -1307,7 +1207,6 @@ Tipos: `text` `number` `bool` `date` `select(...)` `file` `rel→colección` (`[
 
 | campo | tipo |
 |---|---|
-| `account` * | rel→accounts |
 | `cashier` * | rel→cashiers |
 | `user` | rel→users |
 | `type` * | select(manual_movement\|purchase_payment\|expense_payment) |
@@ -1321,7 +1220,6 @@ Tipos: `text` `number` `bool` `date` `select(...)` `file` `rel→colección` (`[
 
 | campo | tipo |
 |---|---|
-| `account` * | rel→accounts |
 | `cashier` * | rel→cashiers |
 | `status` * | select(draft\|completed) |
 | `period_start` | date |
@@ -1338,7 +1236,6 @@ Tipos: `text` `number` `bool` `date` `select(...)` `file` `rel→colección` (`[
 
 | campo | tipo |
 |---|---|
-| `account` * | rel→accounts |
 | `audit` * | rel→cashier_audits |
 | `method` * | select(cash\|card\|transfer\|check\|credit\|debit_card\|payment_intermediary\|electronic_wallet\|electronic_money\|service_card\|food_voucher) |
 | `custom_payment_method` | rel→custom_payment_methods |
@@ -1358,7 +1255,6 @@ Tipos: `text` `number` `bool` `date` `select(...)` `file` `rel→colección` (`[
 
 | campo | tipo |
 |---|---|
-| `account` * | rel→accounts |
 | `subdomain` * | text |
 | `deactivated_at` | date |
 | `name` * | text |
@@ -1399,7 +1295,6 @@ Tipos: `text` `number` `bool` `date` `select(...)` `file` `rel→colección` (`[
 
 | campo | tipo |
 |---|---|
-| `account` * | rel→accounts |
 | `catalog` * | rel→catalogs |
 | `way` * | select(to_agree_after_purchase\|mercadopago\|bank_transfer\|credit\|collect_on_delivery) |
 
@@ -1411,7 +1306,6 @@ Tipos: `text` `number` `bool` `date` `select(...)` `file` `rel→colección` (`[
 
 | campo | tipo |
 |---|---|
-| `account` * | rel→accounts |
 | `catalog` * | rel→catalogs |
 | `method` * | select(to_agree_after_purchase\|pickup\|delivery) |
 
@@ -1423,7 +1317,6 @@ Tipos: `text` `number` `bool` `date` `select(...)` `file` `rel→colección` (`[
 
 | campo | tipo |
 |---|---|
-| `account` * | rel→accounts |
 | `catalog` * | rel→catalogs |
 | `image` | file |
 | `type` | select(promotional) |
@@ -1434,7 +1327,6 @@ Tipos: `text` `number` `bool` `date` `select(...)` `file` `rel→colección` (`[
 
 | campo | tipo |
 |---|---|
-| `account` * | rel→accounts |
 | `catalog` * | rel→catalogs |
 | `location` * | rel→locations |
 
@@ -1446,7 +1338,6 @@ Tipos: `text` `number` `bool` `date` `select(...)` `file` `rel→colección` (`[
 
 | campo | tipo |
 |---|---|
-| `account` * | rel→accounts |
 | `access_token` | text |
 | `refresh_token` | text |
 | `expires_at` | date |

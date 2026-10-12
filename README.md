@@ -124,9 +124,9 @@ services:
 
 - [PocketBase GitHub Repository](https://github.com/pocketbase/pocketbase)
 
-## Schema de TPV (tipo Pulpos)
+## Schema de TPV (tipo Pulpos) — una instancia por negocio
 
-Este repositorio incluye, además de la imagen, un schema completo de punto de venta para PocketBase (93 colecciones, sin campos `json`), con migraciones, hooks y reglas de acceso multi-negocio. Diseño: [`docs/pulpos-schema-design.md`](docs/pulpos-schema-design.md) · colecciones: [`docs/pulpos-schema.md`](docs/pulpos-schema.md).
+Además de la imagen, este repositorio incluye un schema completo de punto de venta para PocketBase (94 colecciones, sin campos `json`), con migraciones, hooks, reglas de acceso y licencia. **Cada negocio corre en su propia instancia** (contenedor + base SQLite). Diseño: [`docs/pulpos-schema-design.md`](docs/pulpos-schema-design.md) · colecciones: [`docs/pulpos-schema.md`](docs/pulpos-schema.md).
 
 PocketBase busca las migraciones en `/pb_migrations` (junto a `/pb_data`) y los hooks en `/pb_hooks`:
 
@@ -137,16 +137,18 @@ services:
     ports: ["8090:8090"]
     volumes:
       - ./pb_data:/pb_data
-      - ./pb_migrations:/pb_migrations   # crea las colecciones y siembra unidades, impuestos y permisos
-      - ./pb_hooks:/pb_hooks             # alta de cuenta y validación multi-negocio
+      - ./pb_migrations:/pb_migrations   # colecciones + semillas (unidades, impuestos, permisos)
+      - ./pb_hooks:/pb_hooks             # alta, licencia y topes
 ```
 
-Después de levantarlo crea un superusuario y da de alta el primer negocio:
+Primer arranque de un negocio:
 
 ```bash
-docker compose exec pocketbase pocketbase superuser upsert tu@correo.com una-clave-larga
-curl -X POST http://localhost:8090/api/tpv/signup -H 'content-type: application/json' \
-  -d '{"account_name":"Mi tienda","email":"dueno@correo.com","password":"clave-de-8+","name":"Dueño"}'
+docker compose exec pocketbase pocketbase superuser upsert panel@tuservicio.com una-clave-larga   # lo usa tu panel de control
+curl -X POST http://localhost:8090/api/tpv/setup -H 'content-type: application/json' \
+  -d '{"business_name":"Mi tienda","email":"dueno@correo.com","password":"clave-de-8+","name":"Dueño"}'
 ```
+
+Como servicio (muchos negocios): `tools/provision-business.sh <slug>` crea e inicia la instancia (plantilla en `deploy/`, proxy con comodín en `deploy/Caddyfile`) y `tools/set-license.mjs` fija plan, estado, vencimiento y topes de ese negocio.
 
 Desarrollo: `node tools/build-schema.mjs` regenera las migraciones desde `schema/*.mjs`; `PB_BIN=/ruta/pocketbase tools/smoke.sh` valida todo contra un PocketBase real.

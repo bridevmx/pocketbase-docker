@@ -1,0 +1,6 @@
+# Proxy único con comodín: <slug>.tpv.ejemplo.com -> contenedor pb-<slug>:8090
+# (requiere `docker network create tpv` y que Caddy esté en esa red; certificado comodín por DNS challenge)
+*.tpv.ejemplo.com {
+	tls { dns cloudflare {env.CF_API_TOKEN} }
+	reverse_proxy pb-{labels.3}:8090
+}

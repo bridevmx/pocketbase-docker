@@ -18,18 +18,31 @@ El listado completo de colecciones y campos está en [`pulpos-schema.md`](pulpos
 | Caja: movimientos y cortes | Importaciones masivas |
 | Catálogo en línea (configuración) | Notificaciones de pago del cliente |
 
-93 colecciones, 0 campos `json`.
+94 colecciones, 0 campos `json`.
 
 ## 2. Convenciones
 
 - Nombres en inglés, `snake_case`. Valores de `select` en minúsculas (`cash`, `debit_card`…).
-- **Multi-tenant**: todas las tablas de negocio llevan `account` (relación a `accounts`). Los catálogos globales (`measure_units`, `permissions`, impuestos con `account` vacío) no.
+- **Una instancia de PocketBase = un negocio** (ver sección 2.1). No existe columna `account`: el aislamiento entre negocios es la propia instancia (contenedor, base y archivos separados).
 - **Borrado lógico**: `deleted_at` (date) donde Pulpos usa `deletedAt`. Los índices únicos de SKU, código de barras, lotes y ruta de lista de precios son parciales (`… WHERE deleted_at = ""`), así que un SKU liberado se puede reutilizar.
 - `created` / `updated` en todas las colecciones (autodate).
 - **Dinero y cantidades**: `number` (float64). La moneda es una sola por cuenta (`accounts.currency`, hoy `mxn`), no una columna por monto. El redondeo (2 decimales de precio, costo promedio con más precisión) lo aplican los hooks.
 - **`bool` y `number` nunca son `required`**: en PocketBase `required` significa `true` / distinto de 0.
 - **Nulos numéricos**: PocketBase no distingue 0 de vacío. Convenciones: `default_client_debt_limit = 0` ⇒ sin límite; `clients.uses_default_debt_limit` indica si usa el del negocio; `account_settings.min_profit_margin_enabled` activa el margen mínimo; `loyalty_programs.min_cart_total = 0` ⇒ sin mínimo.
 - Relaciones múltiples (`rels`) solo para M:N puras sin atributos (impuestos del producto, accesos del usuario, listas/sucursales de una promoción). Si la relación lleva datos, es una colección propia.
+
+### 2.1 Modelo SaaS: una instancia por negocio
+
+| Pieza | Responsabilidad |
+|---|---|
+| **Panel de control** (fuera de este repo; hoy `tools/provision-business.sh` + `tools/set-license.mjs`) | alta de instancias, subdominio, plan y cobro, suspensión, respaldos, despliegue de migraciones |
+| **Instancia** (este repo) | un negocio: sus usuarios, datos y reglas |
+| **`license`** (1 fila) | plan, estado (`trial`/`active`/`past_due`/`suspended`/`cancelled`), vencimientos y **topes ya calculados** (usuarios, sucursales, almacenes). Solo la escribe el superusuario (el panel) |
+| **`license_features`** | funciones habilitadas (plan + add-ons) |
+
+La instancia solo **aplica** la licencia: prueba o pago vencido (con 3 días de gracia) ⇒ solo lectura (`402`); `suspended`/`cancelled` ⇒ no inicia sesión y las sesiones abiertas reciben `403`; los topes impiden crear más usuarios o sucursales de las contratadas. Código de error de máquina = nombre de la clave en `data` (`trial_expired`, `payment_overdue`, `plan_limit_users`…).
+Alta del negocio: `GET/POST /api/tpv/setup` (una sola vez). Si el panel creó la licencia antes, se respeta; si no, arranca en prueba de 14 días.
+Despliegue: `deploy/docker-compose.business.yml` (sin puertos publicados, 256 MB) + `deploy/Caddyfile` (comodín `<slug>.tpv.ejemplo.com` → `pb-<slug>`).
 
 ## 3. Qué JSON/arreglo de Pulpos pasó a colección
 
@@ -69,22 +82,23 @@ Pulpos aplica permisos y varias reglas de negocio solo en la interfaz: probé qu
 | `kind` | Lectura | Escritura |
 |---|---|---|
 | `lookup` | cualquier usuario autenticado | nadie (solo migraciones/superusuario) |
-| `config` | cualquier usuario de la cuenta | solo `role = admin` |
-| `master` | cuenta + permiso (`product.read`, `client.read`…) | cuenta + permiso (`product.create`, `product.edit`…) |
-| `doc` | cuenta + permiso + **sucursales del usuario** | **solo el servidor** (rutas/hooks transaccionales) |
+| `config` | cualquier usuario autenticado | solo `role = admin` |
+| `master` | permiso (`product.read`, `client.read`…) | permiso (`product.create`, `product.edit`…) |
+| `doc` | permiso + **sucursales del usuario** | **solo el servidor** (rutas/hooks transaccionales) |
 | `system` | nadie | nadie (counters, credenciales de Mercado Pago) |
+| `custom` | autenticados | `business`/`pos_settings`: admin; `license`/`license_features`: solo superusuario |
 
 - **Permisos finos**: `users.permissions` → `permissions.key` (`order.create`, `product.read_cost`…); la regla es `role = "admin" || @request.auth.permissions.key ?= "…"`. El catálogo (75 permisos, con dependencias) se siembra desde la matriz de Pulpos, sin facturación/WhatsApp/IA/conciliación.
 - **Sucursales**: un usuario no admin solo ve documentos de las ubicaciones de `users.locations` (ventas, compras, gastos, traspasos, ajustes, fabricación y todas sus partidas hijas).
-- **Integridad entre cuentas** (`pb_hooks/integrity.pb.js`): en toda escritura (API, rutas y hooks) ninguna relación puede apuntar a un registro de otra cuenta.
-- **Usuarios**: un admin crea usuarios solo en su cuenta; nadie se puede dar `role = admin` ni tocar `is_account_owner`; un no admin solo edita sus datos personales.
+- **Usuarios**: nadie se puede dar `role = admin` ni tocar `is_owner`; el dueño no se puede borrar; un no admin solo edita sus datos personales.
 - **Documentos**: ventas, pagos, deudas, reembolsos, movimientos de stock, cortes, compras, etc. **no se pueden crear ni editar desde el cliente**, porque cada operación toca varias tablas y debe ser atómica.
 - La tienda pública no lee colecciones: se servirá desde rutas propias que expongan solo lo necesario.
 
 ## 6. Hooks incluidos
 
-- `bootstrap.pb.js`: al crear una cuenta siembra lista "Precio Público", sucursal principal, serie, caja, cliente "Público en General", configuración, métodos de pago, funciones y unidades. Además `POST /api/tpv/signup` crea cuenta + usuario dueño en una transacción.
-- `integrity.pb.js`: validación multi-tenant de relaciones.
+- `bootstrap.pb.js`: `GET/POST /api/tpv/setup` — alta única del negocio: negocio + licencia (si el panel no la creó) + dueño admin + valores por defecto (lista "Precio Público", sucursal principal, serie, caja, cliente "Público en General", configuración, métodos de pago, unidades).
+- `license.pb.js`: guardia de escrituras por API (licencia y topes), bloqueo de login y de sesiones abiertas si la licencia está suspendida/cancelada, y `GET /api/tpv/subscription`.
+- `lib/`: `license.js` (estado, topes, funciones), `guard.js`, `bootstrap.js`. Los handlers de PocketBase no ven funciones declaradas a nivel de archivo, por eso la lógica vive en módulos que se cargan con `require()` dentro del handler.
 
 ## 7. Lo que sigue (fase 2: lógica transaccional)
 
@@ -104,5 +118,5 @@ Con las colecciones ya definidas faltan las rutas del servidor que escriben los 
 ## 8. Validación
 
 - `node tools/build-schema.mjs` regenera `pb_migrations/*` y `docs/pulpos-schema.md` desde `schema/*.mjs` (no editar la migración a mano).
-- `PB_BIN=/ruta/pocketbase tools/smoke.sh` levanta un PocketBase temporal y corre 46 comprobaciones: bootstrap, aislamiento entre negocios, integridad entre cuentas, unicidad con borrado lógico, permisos finos, costos ocultos, acotado por sucursal, documentos de solo servidor e idempotencia.
+- `PB_BIN=/ruta/pocketbase tools/smoke.sh` levanta un PocketBase temporal y corre las comprobaciones: alta única, unicidad con borrado lógico, permisos finos, costos ocultos, acotado por sucursal, documentos de solo servidor, idempotencia, topes de licencia, prueba/pago vencido, suspensión.
 - Las migraciones son reversibles (`migrate down`).

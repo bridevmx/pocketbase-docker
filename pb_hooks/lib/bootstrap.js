@@ -1,4 +1,4 @@
-// Valores por defecto al crear una cuenta (equivale al "seed" que hace Pulpos al registrarse).
+// Valores por defecto del negocio (equivale al "seed" que hace Pulpos al registrarse).
 // Se usa con require() DENTRO de los handlers (los hooks de PocketBase no comparten variables globales).
 
 function mk(app, collection, data) {
@@ -8,19 +8,16 @@ function mk(app, collection, data) {
   return r;
 }
 
-function bootstrapAccount(app, account) {
-  const acc = account.id;
+function bootstrapBusiness(app) {
+  const priceList = mk(app, 'price_lists', { name: 'Precio Público', is_default: true });
+  const location = mk(app, 'locations', { name: 'Sucursal Principal', type: 'branch', is_default: true, default_price_list: priceList.id });
+  const series = mk(app, 'order_series', { name: 'Principal', location: location.id, next_number: 1, is_default: true });
+  mk(app, 'cashiers', { name: 'Principal', location: location.id, order_series: series.id, is_default: true });
 
-  const priceList = mk(app, 'price_lists', { account: acc, name: 'Precio Público', is_default: true });
-  const location = mk(app, 'locations', { account: acc, name: 'Sucursal Principal', type: 'branch', is_default: true, default_price_list: priceList.id });
-  const series = mk(app, 'order_series', { account: acc, name: 'Principal', location: location.id, next_number: 1, is_default: true });
-  mk(app, 'cashiers', { account: acc, name: 'Principal', location: location.id, order_series: series.id, is_default: true });
+  // Cliente genérico para ventas de mostrador (evita cliente vacío en las ventas)
+  mk(app, 'clients', { type: 'general_public', name: 'Público en General', uses_default_debt_limit: true });
 
-  // Cliente genérico para ventas de mostrador (evita clientId vacío en las ventas)
-  mk(app, 'clients', { account: acc, type: 'general_public', name: 'Público en General', uses_default_debt_limit: true });
-
-  mk(app, 'account_settings', {
-    account: acc,
+  mk(app, 'pos_settings', {
     allow_personalized_prices: true,
     show_portal_url_on_tickets: true,
     show_portal_url_on_pdfs: true,
@@ -33,12 +30,8 @@ function bootstrapAccount(app, account) {
     ticket_print_on_counter_order: true,
   });
 
-  for (const method of ['cash', 'card', 'transfer', 'credit', 'debit_card']) {
-    mk(app, 'account_payment_methods', { account: acc, method, enabled: true });
-  }
-  // las funciones habilitadas salen del plan (plan_features) + add-ons (account_features), no se siembran aquí
-  const units = app.findRecordsByFilter('measure_units', 'key != ""', 'key', 100, 0);
-  for (const u of units) mk(app, 'account_units', { account: acc, unit: u.id });
+  for (const method of ['cash', 'card', 'transfer', 'credit', 'debit_card']) mk(app, 'enabled_payment_methods', { method, enabled: true });
+  for (const u of app.findRecordsByFilter('measure_units', 'key != ""', 'key', 100, 0)) mk(app, 'enabled_units', { unit: u.id });
 }
 
-module.exports = { bootstrapAccount };
+module.exports = { bootstrapBusiness };

@@ -1,0 +1,26 @@
+# Una instancia = un negocio. Plantilla: la usa tools/provision-business.sh (reemplaza ${SLUG}).
+# El contenedor se llama "pb-<slug>" y NO publica puertos: solo lo alcanza el proxy (ver deploy/Caddyfile).
+services:
+  pb:
+    image: ghcr.io/muchobien/pocketbase:latest
+    container_name: pb-${SLUG}
+    restart: unless-stopped
+    environment:
+      ENCRYPTION: ${ENCRYPTION}          # 32 caracteres: cifra los ajustes de la instancia
+    command: ["--encryptionEnv", "ENCRYPTION"]
+    volumes:
+      - ./pb_data:/pb_data               # base de datos + archivos del negocio (esto es lo que se respalda)
+      - ../../pb_migrations:/pb_migrations:ro
+      - ../../pb_hooks:/pb_hooks:ro
+    networks: [tpv]
+    healthcheck:
+      test: wget --no-verbose --tries=1 --spider http://localhost:8090/api/health || exit 1
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits: { memory: 256M }
+networks:
+  tpv:
+    external: true

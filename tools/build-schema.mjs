@@ -19,12 +19,10 @@ const SEED_TS = '1760000001';
 // ───────── 1. Normalizar definiciones ─────────
 const defs = [...core, ...catalog, ...inventory, ...sales, ...purchases, ...online];
 
+// UNA INSTANCIA = UN NEGOCIO: no existe columna `account`; el aislamiento entre negocios es el propio contenedor.
 const names = new Set(defs.map((d) => d.name));
 for (const d of defs) {
   const fields = [];
-  if (!d.noAccount && !d.extend) {
-    fields.push(rel('account', 'accounts', { required: !d.optionalAccount }));
-  }
   fields.push(...d.fields);
   if (d.soft && !fields.some((f) => f.name === 'deleted_at')) fields.push(date('deleted_at'));
   d.fields = fields;
@@ -35,7 +33,7 @@ for (const d of defs) {
 
 // ───────── 2. Reglas de acceso ─────────
 const AUTH = '@request.auth.id != ""';
-const TEN = `${AUTH} && @request.auth.account = account`;
+const TEN = AUTH;
 const ADMIN = '@request.auth.role = "admin"';
 const can = (keys) => (keys === 'any' || !keys ? null : '(' + [ADMIN, ...keys.map((k) => `@request.auth.permissions.key ?= "${k}"`)].join(' || ') + ')');
 const locOf = (fields) => (fields && fields.length ? '(' + [ADMIN, ...fields.map((f) => `@request.auth.locations.id ?= ${f}`)].join(' || ') + ')' : null);
@@ -50,15 +48,15 @@ function rulesFor(d) {
     case 'config':
       return {
         list: TEN, view: TEN,
-        create: and(AUTH, '@request.body.account = @request.auth.account', ADMIN),
-        update: and(TEN, ADMIN, '@request.body.account:isset = false'),
+        create: and(AUTH, ADMIN),
+        update: and(TEN, ADMIN),
         delete: and(TEN, ADMIN),
       };
     case 'master':
       return {
         list: and(TEN, can(p.read)), view: and(TEN, can(p.read)),
-        create: and(AUTH, '@request.body.account = @request.auth.account', can(p.create)),
-        update: and(TEN, '@request.body.account:isset = false', can(p.edit)),
+        create: and(AUTH, can(p.create)),
+        update: and(TEN, can(p.edit)),
         delete: and(TEN, can(p.delete)),
       };
     case 'doc': {
@@ -75,7 +73,9 @@ function indexes(d) {
   const out = [];
   const q = (s) => '`' + s + '`';
   const used = new Set();
-  const add = (i) => {
+  const add = (i0) => {
+    const i = { ...i0, cols: i0.cols.filter((c) => c !== 'account') };
+    if (!i.cols.length) return; // índice solo por account: ya no aplica
     const base = `idx_${d.name}_${i.cols.join('_')}${i.where ? '_p' : ''}`.slice(0, 60);
     let n = base; let k = 2;
     while (used.has(n)) n = `${base}_${k++}`;
@@ -83,7 +83,6 @@ function indexes(d) {
     out.push(`CREATE ${i.unique ? 'UNIQUE ' : ''}INDEX ${q(n)} ON ${q(d.name)} (${i.cols.map(q).join(', ')})${i.where ? ' WHERE ' + i.where : ''}`);
   };
   for (const i of d.idx || []) add(i);
-  if (!d.noAccount && !(d.idx || []).some((i) => i.cols[0] === 'account')) add({ cols: ['account'] });
   return out;
 }
 
@@ -95,8 +94,8 @@ const spec = defs.map((d) => ({
   fields: d.fields,
   indexes: indexes(d),
   rules: rulesFor(d),
-  // no entra quien fue dado de baja ni quien pertenece a una cuenta suspendida o cancelada
-  authRule: d.name === 'users' ? 'deleted_at = "" && account.status != "suspended" && account.status != "cancelled"' : undefined,
+  // no entra quien fue dado de baja (el estado de la licencia se revisa en el hook de auth)
+  authRule: d.name === 'users' ? 'deleted_at = ""' : undefined,
 }));
 
 const PRELUDE = String.raw`
@@ -226,16 +225,7 @@ for (const p of PERMS) {
 }
 const permsData = PERMS.map(({ key, subject, action, requires }) => ({ key, subject, action, requires }));
 
-// Planes por defecto (EDITABLES): no son los topes reales de Pulpos, que no son públicos.
-const ALL4 = ['manufacturing', 'bank_reconciliations', 'whatsapp_sales_channel', 'catalog_plus'];
-const PLANS = [
-  { code: 'trial', name: 'Prueba', max_users: 3, max_branches: 1, max_warehouses: 1, position: 0, features: ALL4 },
-  { code: 'inicial', name: 'Inicial', max_users: 1, max_branches: 1, max_warehouses: 1, position: 1, features: [] },
-  { code: 'esencial', name: 'Esencial', max_users: 3, max_branches: 1, max_warehouses: 1, position: 2, features: [] },
-  { code: 'avanzado', name: 'Avanzado', max_users: 5, max_branches: 3, max_warehouses: 3, position: 3, features: ['manufacturing'] },
-  { code: 'pro', name: 'Pro', max_users: 10, max_branches: 5, max_warehouses: 5, position: 4, features: ALL4 },
-];
-const seed = { UNITS, TAXES, PERMS: permsData, PLANS };
+const seed = { UNITS, TAXES, PERMS: permsData };
 fs.writeFileSync(
   path.join(root, 'pb_migrations', `${SEED_TS}_pulpos_seed.js`),
   `${header}migrate((app) => {
@@ -253,21 +243,7 @@ fs.writeFileSync(
     const r = new Record(taxes);
     r.set('type', t.type); r.set('name', t.name); r.set('percentage', t.percentage);
     r.set('is_exempt', t.is_exempt); r.set('is_withheld', t.is_withheld);
-    app.save(r); // account vacío = impuesto global
-  }
-
-  const plans = app.findCollectionByNameOrId('plans');
-  const planFeatures = app.findCollectionByNameOrId('plan_features');
-  for (const p of SEED.PLANS) {
-    const r = new Record(plans);
-    r.set('code', p.code); r.set('name', p.name); r.set('max_users', p.max_users);
-    r.set('max_branches', p.max_branches); r.set('max_warehouses', p.max_warehouses); r.set('position', p.position);
     app.save(r);
-    for (const f of p.features) {
-      const pf = new Record(planFeatures);
-      pf.set('plan', r.id); pf.set('feature', f);
-      app.save(pf);
-    }
   }
 
   const perms = app.findCollectionByNameOrId('permissions');
@@ -284,8 +260,8 @@ fs.writeFileSync(
     app.save(r);
   }
 }, (app) => {
-  for (const name of ['plan_features', 'plans', 'permissions', 'taxes', 'measure_units']) {
-    app.db().newQuery('DELETE FROM ' + name + (name === 'taxes' ? " WHERE account = ''" : '')).execute();
+  for (const name of ['permissions', 'taxes', 'measure_units']) {
+    app.db().newQuery('DELETE FROM ' + name).execute();
   }
 });
 `,

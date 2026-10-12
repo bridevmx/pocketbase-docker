@@ -1,12 +1,14 @@
-import { col, text, num, bool, date, sel, file, email, rel, rels, photos, uniq, index } from './lib.mjs';
+import { col, text, num, bool, date, sel, email, rel, rels, photos, uniq, index } from './lib.mjs';
 import { BUSINESS_TYPE, FEATURE, PAYMENT_METHOD } from './enums.mjs';
 
-const T = '@request.auth.id != "" && @request.auth.account = account';
+// Una instancia de PocketBase = un negocio. No hay columna `account`.
+const AUTH = '@request.auth.id != ""';
+const ADMIN = '@request.auth.role = "admin"';
 
 export default [
-  // ───────── Negocio ─────────
-  col('accounts', {
-    kind: 'custom', noAccount: true,
+  // ───────── Negocio (una sola fila) ─────────
+  col('business', {
+    kind: 'custom',
     fields: [
       text('name', { required: true, max: 200 }),
       sel('business_type', BUSINESS_TYPE),
@@ -16,30 +18,44 @@ export default [
       email('email'),
       photos('logo', 1),
       rel('owner', 'users'),
-      // Suscripción: el estado lo cambian el servidor/superusuario (cobro), nunca el cliente
-      rel('plan', 'plans'),
+    ],
+    rules: { list: AUTH, view: AUTH, create: null, delete: null, update: `${AUTH} && ${ADMIN} && @request.body.owner:isset = false` },
+  }),
+
+  // ───────── Licencia (una sola fila) ─────────
+  // La escribe el panel de control (superusuario) según el plan contratado y el cobro.
+  // Guarda los topes YA calculados (plan + add-ons); la instancia solo los aplica.
+  col('license', {
+    kind: 'custom',
+    fields: [
+      text('plan_code', { max: 40 }),
+      text('plan_name', { max: 80 }),
       sel('status', ['trial', 'active', 'past_due', 'suspended', 'cancelled'], { required: true }),
       date('trial_ends_at'),
       date('paid_until'),
+      num('max_users', { min: 1, onlyInt: true }),
+      num('max_branches', { min: 1, onlyInt: true }),
+      num('max_warehouses', { min: 0, onlyInt: true }),
     ],
-    rules: {
-      list: '@request.auth.id != "" && @request.auth.account = id',
-      view: '@request.auth.id != "" && @request.auth.account = id',
-      create: null, delete: null,
-      update: '@request.auth.id != "" && @request.auth.account = id && @request.auth.role = "admin" && @request.body.plan:isset = false && @request.body.status:isset = false && @request.body.trial_ends_at:isset = false && @request.body.paid_until:isset = false && @request.body.owner:isset = false',
-    },
+    rules: { list: AUTH, view: AUTH, create: null, update: null, delete: null },
+  }),
+  // Funciones habilitadas (plan + add-ons comprados)
+  col('license_features', {
+    kind: 'custom',
+    fields: [sel('feature', FEATURE, { required: true })],
+    idx: [uniq(['feature'])],
+    rules: { list: AUTH, view: AUTH, create: null, update: null, delete: null },
   }),
 
   // Usuarios: se extiende la colección auth `users` que trae PocketBase.
   col('users', {
-    kind: 'custom', noAccount: true, extend: true,
+    kind: 'custom', extend: true,
     fields: [
       text('surname', { max: 120 }),
       text('phone', { max: 30 }),
       sel('role', ['admin', 'user'], { required: true }),
-      bool('is_account_owner'),
+      bool('is_owner'),
       date('deleted_at'),
-      rel('account', 'accounts', { required: true, cascade: true }),
       rel('default_price_list', 'price_lists'),
       // listas de acceso (M:N puras) y permisos finos
       rels('locations', 'locations'),
@@ -47,18 +63,17 @@ export default [
       rels('price_lists', 'price_lists'),
       rels('permissions', 'permissions'),
     ],
-    idx: [index(['account'])],
     rules: {
-      list: T, view: T,
-      create: '@request.auth.role = "admin" && @request.body.account = @request.auth.account && @request.body.is_account_owner:isset = false',
-      update: T + ' && @request.body.account:isset = false && @request.body.is_account_owner:isset = false && (@request.auth.role = "admin" || (id = @request.auth.id && @request.body.role:isset = false && @request.body.permissions:isset = false && @request.body.locations:isset = false && @request.body.cashiers:isset = false && @request.body.price_lists:isset = false))',
-      delete: T + ' && @request.auth.role = "admin" && id != @request.auth.id && is_account_owner = false',
+      list: AUTH, view: AUTH,
+      create: `${ADMIN} && @request.body.is_owner:isset = false`,
+      update: `${AUTH} && @request.body.is_owner:isset = false && (${ADMIN} || (id = @request.auth.id && @request.body.role:isset = false && @request.body.permissions:isset = false && @request.body.locations:isset = false && @request.body.cashiers:isset = false && @request.body.price_lists:isset = false))`,
+      delete: `${ADMIN} && id != @request.auth.id && is_owner = false`,
     },
   }),
 
   // Catálogo global de permisos finos (equivale a advancedPermissions de Pulpos)
   col('permissions', {
-    kind: 'lookup', noAccount: true,
+    kind: 'lookup',
     fields: [
       text('key', { required: true, max: 100 }),
       text('subject', { required: true, max: 60 }),
@@ -68,27 +83,8 @@ export default [
     idx: [uniq(['key'])],
   }),
 
-  // Planes y límites (editables por el superusuario). Los add-ons suman a estos topes.
-  col('plans', {
-    kind: 'lookup', noAccount: true,
-    fields: [
-      text('code', { required: true, max: 40 }),
-      text('name', { required: true, max: 80 }),
-      num('max_users', { min: 1, onlyInt: true }),
-      num('max_branches', { min: 1, onlyInt: true }),
-      num('max_warehouses', { min: 0, onlyInt: true }),
-      num('position', { min: 0, onlyInt: true }),
-    ],
-    idx: [uniq(['code'])],
-  }),
-  col('plan_features', {
-    kind: 'lookup', noAccount: true,
-    fields: [rel('plan', 'plans', { required: true, cascade: true }), sel('feature', FEATURE, { required: true })],
-    idx: [uniq(['plan', 'feature'])],
-  }),
-
   col('measure_units', {
-    kind: 'lookup', noAccount: true,
+    kind: 'lookup',
     fields: [
       text('key', { required: true, max: 40 }),
       text('name_singular', { required: true, max: 80 }),
@@ -98,16 +94,8 @@ export default [
     idx: [uniq(['key'])],
   }),
 
-  // Impuestos: globales (account vacío) o propios de la cuenta
   col('taxes', {
-    kind: 'config', optionalAccount: true, soft: false,
-    rules: {
-      list: '@request.auth.id != "" && (account = "" || account = @request.auth.account)',
-      view: '@request.auth.id != "" && (account = "" || account = @request.auth.account)',
-      create: '@request.auth.role = "admin" && @request.body.account = @request.auth.account',
-      update: '@request.auth.role = "admin" && account = @request.auth.account && @request.body.account:isset = false',
-      delete: '@request.auth.role = "admin" && account = @request.auth.account',
-    },
+    kind: 'config',
     fields: [
       sel('type', ['vat', 'ieps', 'isr'], { required: true }),
       text('name', { max: 80 }),
@@ -138,7 +126,7 @@ export default [
       rel('address', 'addresses'),
       rel('default_price_list', 'price_lists'),
     ],
-    idx: [index(['account', 'type'])],
+    idx: [index(['type'])],
   }),
 
   col('price_lists', {
@@ -150,7 +138,7 @@ export default [
       text('catalog_path', { max: 60, pattern: '^[a-z0-9]*$' }),
       bool('catalog_hidden'),
     ],
-    idx: [uniq(['account', 'catalog_path'], 'catalog_path != "" AND deleted_at = ""')],
+    idx: [uniq(['catalog_path'], 'catalog_path != "" AND deleted_at = ""')],
   }),
 
   col('order_series', {
@@ -171,7 +159,7 @@ export default [
       rel('order_series', 'order_series'),
       bool('is_default'),
     ],
-    idx: [index(['account', 'location'])],
+    idx: [index(['location'])],
   }),
 
   col('sellers', {
@@ -183,9 +171,10 @@ export default [
     ],
   }),
 
-  // ───────── Configuración (1 fila por cuenta; sustituye a las *Settings de Pulpos) ─────────
-  col('account_settings', {
-    kind: 'config',
+  // ───────── Configuración (una sola fila; sustituye a las *Settings de Pulpos) ─────────
+  col('pos_settings', {
+    kind: 'custom',
+    rules: { list: AUTH, view: AUTH, create: null, delete: null, update: `${AUTH} && ${ADMIN}` },
     fields: [
       bool('allow_personalized_prices'),
       bool('white_label_branding'),
@@ -220,31 +209,18 @@ export default [
       bool('ticket_print_duplicate'),
       photos('ticket_logo', 1),
     ],
-    idx: [uniq(['account'])],
   }),
 
-  // Add-ons comprados (extra_user, extra_branch…): solo los escribe el servidor/superusuario
-  col('account_features', {
-    kind: 'custom',
-    rules: { list: T, view: T, create: null, update: null, delete: null },
-    fields: [
-      sel('feature', FEATURE, { required: true }),
-      bool('enabled'),
-      num('quantity', { min: 0, onlyInt: true }),
-    ],
-    idx: [uniq(['account', 'feature'])],
-  }),
-
-  col('account_units', {
+  col('enabled_units', {
     kind: 'config',
     fields: [rel('unit', 'measure_units', { required: true })],
-    idx: [uniq(['account', 'unit'])],
+    idx: [uniq(['unit'])],
   }),
 
-  col('account_payment_methods', {
+  col('enabled_payment_methods', {
     kind: 'config',
     fields: [sel('method', PAYMENT_METHOD, { required: true }), bool('enabled')],
-    idx: [uniq(['account', 'method'])],
+    idx: [uniq(['method'])],
   }),
 
   col('custom_payment_methods', {
@@ -258,10 +234,10 @@ export default [
     ],
   }),
 
-  // Consecutivos por cuenta (folios de compras, traspasos, ajustes…). Solo los hooks escriben.
+  // Consecutivos (folios de compras, traspasos, ajustes…). Solo los hooks escriben.
   col('counters', {
     kind: 'system',
     fields: [text('key', { required: true, max: 60 }), num('value', { min: 0, onlyInt: true })],
-    idx: [uniq(['account', 'key'])],
+    idx: [uniq(['key'])],
   }),
 ];
