@@ -1,4 +1,4 @@
-# Análisis profundo del modelo de datos de Pulpos TPV (v3, sin facturación)
+# Análisis profundo del modelo de datos de Pulpos TPV (v4, sin facturación)
 
 Fuentes, de más a menos confiable:
 
@@ -110,7 +110,8 @@ Orígenes observados con datos reales:
   4. **Abono a varias ventas** (`orders.payOrdersDebt`, verificado): crea **un** `UnifiedDebtPayment` y un `OrderPayment` por venta, todos con el mismo `unifiedDebtPaymentId`; cada `OrderDebt.currentDebt` baja a 0 y la fila `CREDIT.total` queda en 0.
   5. `ClientDebtLimit(clientId, limit)` y `restrictSellingToClientsWithOverdueDebt` **no se aplican en el servidor** (probado: venta a crédito que excedía el límite de $50 y venta a cliente con deuda vencida se aceptaron). `Client.totalDebt` es derivado.
   6. Crédito exige fecha: `Due date is required to register a debt`.
-- **Lealtad** (`LoyaltyProgram`: `rewardPercentage`, `minCartTotalLimitation`, recompensas por producto/categoría, limitaciones por lista de precios y ubicación): el puntaje se otorga **por pago**, no por venta (`OrderPayment.loyaltyPointsReward = pago × %`). `LoyaltyProgramMovement(previousQuantity, currentQuantity, origin, orderId)` es otro libro mayor (ORDER_EARN, ORDER_SPEND, ORDER_PAYMENT_EARN, reversas, ADJUSTMENT). `Client.loyaltyPoints` es el saldo.
+- **Lealtad**: detalle verificado en la sección 18 (puntos por pago, canje como descuento de carrito, tasas por producto/categoría, mínimo de carrito).
+- **Descuentos** (dos niveles distintos): *por partida* (`OrderItemProductDiscount` ligado por `OrderItemProduct.discountId`: `type` PERCENTAGE|FIXED, `percentage` —que guarda el monto cuando es FIXED—, `title`, `promotionId`) y *de carrito* (`OrderItemCartDiscount`: `type`, `amount`, `loyaltyPointsUsed`). Regla del servidor verificada: con descuento por partida, **`subtotal` = Σ cantidad × precio unitario sin descuento**, la partida lleva `total` ya con descuento (10% de 30 → 27) y **`Order.discounts` solo suma descuentos de carrito**, nunca los de partida. Las promociones automáticas generan estos mismos registros con `promotionId`.
 - **Reembolso** (`orders.refundItems`): `OrderRefund(reason, totalRefunded, subtotalRefunded, cancelledDebt, orderSnapshot)` + `OrderItemRefund(orderItemId, quantityRefunded)` + `…BatchQuantity` + `OrderRefundPayment(method, totalRefunded, cashierId, customPaymentMethodId)`. Genera `ORDER_RETURN` en inventario. **Si `cashierId` va nulo, el reembolso no cuenta en el corte de caja** (observado: `refund = 0` en el corte). `paymentStatus` de la venta no cambió con un reembolso parcial.
 - **Cancelación** (`orders.cancel`): solo si el pago está `PENDING` (`Cannot cancel an order whose payment is not pending`). Una venta cobrada se **reembolsa** o se **elimina** (`deleteMany`, con reversa de stock `ORDER_DELETE`).
 - `completeShipping` exige fecha de vencimiento si la venta no está pagada completa (crea deuda).
@@ -223,11 +224,44 @@ Los permisos se asignan por usuario junto con listas de acceso a sucursales, alm
 
 `subscriptions.getSubscription`: plan `Pro-Mid-2024` (mensual MXN, 14 días de prueba) y **add-ons**: `EXTRA_BRANCH`, `EXTRA_USER`, `MANUFACTURING`, `BANK_RECONCILIATION`, `WHITE_LABEL`, `CATALOG_PLUS`, `AI_SELLER`. Las sucursales/almacenes extra y los usuarios extra son de pago; los *feature flags* (`accountFeatures`) los habilitan. Por eso no hay `locations.create` libre en la cuenta de prueba. Servicios digitales (recargas, pago de servicios) usan un catálogo global sembrado desde GestoPago (`phoneRecharges` con Telcel y otras, `referenceType` PHONE_NUMBER/BARCODE/CUSTOM).
 
-## 17. Pendiente por confirmar
+## 17. Catálogo en línea (tienda pública)
 
-- **APK**: no pude descargarlo (apkpure está detrás de Cloudflare); no hace falta para el offline, que está en la web, pero habría confirmado si añade almacenamiento nativo.
-- Fórmulas de impuestos en pantalla (precio "con impuestos" vs "sin impuestos", redondeo del desglose) y descuentos por partida: la forma del payload de descuento por partida (`discount`) devolvió `Venta inválida` y no la pude fijar.
-- Cuándo y cómo se **gastan** puntos de lealtad (`ORDER_SPEND`): el método `ELECTRONIC_WALLET` no los consume.
-- `PURCHASE_DELETE`, borrar sucursal (`LOCATION_DELETE`), importación masiva de productos y clientes (`upsertManyFromImport`, `clients.import`), recetas médicas y catálogo en línea (se evitó crear un catálogo público).
-- Segunda sucursal/almacén (requiere add-on).
-- Columnas sin tipo en el catálogo (65 modelos): se deducen de muestras.
+**Administración (app principal)**
+- `Catalog(subdomain, deactivatedAt)` 1:1 con `CatalogConfiguration` (`name`, `phoneNumber`, redes, `emailContact`, `configProductsWithoutStock` SHOW|HIDE, `configAcquisitionLimit` LIMIT_TO_STOCK|UNLIMITED, `configCategories` SHOW|HIDE, `locationOfOriginId`, `uiVariant` RETAIL|WHOLESALE, `areClientCatalogsEnabled`, `isVolumePricingEnabled`).
+- Hijas 1:1 creadas junto con el catálogo: `CatalogOrderPaymentConfiguration` (`wayOfPayments[]`, instrucciones por forma de pago), `CatalogOrderShippingConfiguration` (`shippingMethods[]`, `pickUpAddressId`, `deliveryDefaultPrice`, instrucciones) y `CatalogHomePagePersonalization` (`title`, `mainButtonText`, `showHeroPhoto`, `heroPhotoId`). Además `CatalogBanner`, `CatalogPhoto` (HERO), `LocationStockVisibilityToCatalog` (qué sucursales suman al stock visible) y `MercadoPagoCredentials` por cuenta.
+- Procedimientos: `catalog.create({subdomain, name, phoneNumber})`, `updateDomain`, `activate`/`deactivate`, `createBanner`, `createPhoto`, `myCatalog`, `getVariants`.
+- Reglas: `subdomain` solo **minúsculas y números** (sin guiones). La URL pública es `https://<subdominio>.pulpos.shop`.
+- **Variantes de catálogo**: cada `CustomPriceType` crea una `CatalogVariantConfig(path, hidden, customPriceTypeId)`; la tienda de la lista "Mayoreo" vive en `/mayoreo/` y se muestra solo si `hidden=false`. Los **catálogos por cliente** viven en `/clientes/<código>/` (código = `userFriendlyId` del cliente; `clients.findByCode`).
+
+**Tienda pública (otra app tRPC, sin sesión)**
+- Resuelve el negocio por cabeceras, no por cookies: `x-catalog-subdomain`, `x-catalog-variant-slug` (`public` o el `path` de la lista) y `x-catalog-client-code`.
+- Procedimientos públicos (solo 8): `catalog.config`, `categories.highlightedCategories`, `products.search({sort:{field:'soldCount',direction}, pagination:{limit,offset}})`, `products.getById`, `clients.findByCode`, `world.getStates({country:'MX'})`, `checkout.validateCart`, `checkout.createOrder`, `checkout.getPaymentUrl` (Mercado Pago; `NOT_FOUND` sin credenciales).
+- `validateCart({items:[{quantity, product:{id}}]})` → por producto `available`, `hasEnoughStock`, `currentPrices[]` (con breakpoints). `quantity` viaja como `Decimal`.
+- `createOrder({client:{name, mobilePhone, email}, cart:{items, shippingMethod, wayOfPayment}})` → crea una `Order` con `origin = ONLINE_CATALOG`, `paymentStatus/shippingStatus = PENDING`, `userIdCreatedBy = null`.
+  - **Los precios y costos los calcula el servidor** desde la BD; el cliente solo manda id y cantidad (a diferencia del POS, que manda todo).
+  - **Cliente**: si el teléfono ya existe reutiliza ese `Client` (pedido B con otro nombre/correo no creó otro); si no, crea un `ACCOUNT_CLIENT`. Con la variante `mayoreo` la venta lleva `customPriceTypeId` de esa lista.
+  - **Stock**: no se descuenta; se **compromete** (`committedStock`: 4, `availableStock` 64 → 60, `committedOrders[]`). Con `LIMIT_TO_STOCK`, pedir más de lo disponible devuelve `Some items exceed available stock`.
+  - Comparte la numeración de folios de la cuenta (`orderNumber` 44, 45…).
+- Cierre del ciclo (administrador): el pedido aparece en `orders.getOrders` y en `getNonDeliveredOrderStats`; se cobra con `addPayments` y se entrega con `completeShipping`, momento en que baja el stock real.
+- Cloudflare rechaza user-agents genéricos (error 1010); un navegador o `curl` pasan.
+
+## 18. Programa de lealtad (verificado)
+
+- **Configuración** (`loyaltyProgram.create/update`, formulario): `rewardPercentage` 0–100, `productSpecificRewards[{productProfileId, rewardPercentage}]`, `categorySpecificRewards[{categoryId, rewardPercentage}]`, `minCartTotalLimitation` (nullable), `priceListLimitationIds[]`, `locationLimitationIds[]`; `activate`/`deactivate` (`deactivatedAt`). Constantes del cliente: **1 punto = $1** (`LOYALTY_POINTS_MULTIPLIER = 1`), mínimo acreditable 0.01.
+- **Solo clientes con cuenta** (`ACCOUNT_CLIENT`) acumulan; "Público en General" no.
+- **Tasa por venta**: se calcula **partida por partida** (producto específico → categoría → general) y se guarda como snapshot `Order.loyaltyPointsRewardPercentage` = puntos ÷ total. Ejemplo real: servicio $100 al 10% + jugo $50 de categoría al 5% → 12.5 pts → 8.33%. Venta bajo el `minCartTotalLimitation` → 0%.
+- **Importante**: el servidor usa el `product.connect.id` y el **`categoryId` que manda el POS** en cada partida; si el cliente no manda la categoría, esa partida cae a la tasa general (probado: 11 en vez de 12.5).
+- **Acumulación**: se paga **por cada `OrderPayment`** (`loyaltyPointsReward = pago × tasa`), no por la venta; un abono posterior de deuda también suma (ej.: abono de $20 → 0.4 pts). Cada cambio de saldo escribe un `LoyaltyProgramMovement(origin, previousQuantity, currentQuantity, orderId)`.
+- **Canje (era el pendiente)**: gastar puntos es un **descuento de carrito** `OrderItemCartDiscount{type: FIXED, amount, loyaltyPointsUsed}`; genera `ORDER_SPEND` (saldo 4.58 → 3.58 al canjear 1 pt por $1) y la venta nueva acumula sobre el total ya con descuento (14 × 2% = 0.28). `ELECTRONIC_WALLET` **no** es el canje (solo es otro método de pago).
+- **Orígenes de movimiento** (`LoyaltyProgramMovementOrigin`): ganar = ORDER_EARN, ORDER_PAYMENT_EARN, ORDER_ASSIGN_CLIENT, reversas de gasto; gastar = ORDER_SPEND, ORDER_REMOVE_CLIENT, ORDER_PAYMENT_DELETE_REVERT, ORDER_DELETE_EARN_REVERT, ORDER_REFUND_EARN_REVERT; más ADJUSTMENT (`loyaltyProgram.updateClientPoints{clientId, newQuantity, adjustmentReason}`).
+- Las reversas (borrar/reembolsar una venta devuelve o quita puntos) existen como orígenes; **no las probé**.
+
+## 19. Pendiente por confirmar
+
+- **APK**: no pude descargarlo (apkpure detrás de Cloudflare). No es necesario para el offline (está en la web).
+- Reversas de lealtad al reembolsar o eliminar una venta; prioridad entre recompensa de producto vs categoría cuando ambas aplican a la misma partida.
+- Pago de pedidos online con Mercado Pago (`getPaymentUrl`) y flujo de `wayOfPayment`≠ "por acordar": requiere credenciales de Mercado Pago.
+- Banners y fotos del catálogo (subida de imágenes: `images.getUploadUrl` + `catalog.createBanner/createPhoto`); no probé la subida.
+- Importaciones masivas y borrar sucursal: **fuera de alcance** por decisión del proyecto.
+- Segunda sucursal/almacén (add-on de pago).
+- Columnas sin tipo: el catálogo ya trae tipos del esquema oficial (526 columnas) más **523 inferidas de respuestas reales** (marcadas `~`); quedan 399 sin dato, casi todas en modelos de facturación, IA, WhatsApp y conciliación.

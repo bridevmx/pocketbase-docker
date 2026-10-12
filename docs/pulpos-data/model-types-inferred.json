@@ -1,0 +1,781 @@
+{
+ "State": {},
+ "AccountSubscriptionStatus": {},
+ "Account": {
+  "amplitudeId": "string",
+  "accountType": "enum AccountType"
+ },
+ "OnboardingStatus": {},
+ "User": {
+  "id": "string",
+  "openIdSub": "string",
+  "accountId": "string",
+  "email": "string",
+  "name": "string",
+  "surname": "string",
+  "phoneNumber": "string",
+  "isAccountOwner": "boolean",
+  "lastLogin": "datetime?",
+  "updatesHubLastSeenAt": "datetime",
+  "updatesHubLastDismissedAt": "datetime",
+  "createdAt": "datetime",
+  "updatedAt": "datetime",
+  "slug": "string",
+  "role": "enum Role",
+  "advancedPermissions": "array/json",
+  "authProviders": "array/json"
+ },
+ "ResellerProfile": {},
+ "BusinessProfile": {
+  "numberOfEmployees": "decimal",
+  "ticketDetailsId": "string",
+  "accountantsEmails": "array/json"
+ },
+ "Location": {
+  "name": "string",
+  "id": "string",
+  "phoneNumber": "string?",
+  "email": "string?",
+  "type": "string",
+  "createdAt": "datetime",
+  "updatedAt": "datetime",
+  "isDefault": "boolean",
+  "defaultPriceTypeId": "string?",
+  "accountId": "string?",
+  "userIdCreatedBy": "string?",
+  "invoicingSettingsId": "string"
+ },
+ "TicketDetails": {},
+ "FiscalProfile": {
+  "id": "string",
+  "createdAt": "datetime",
+  "updatedAt": "datetime",
+  "fiscalName": "string",
+  "addressId": "string",
+  "fiscalRegimeId": "string",
+  "fiscalCode": "string"
+ },
+ "SelfInvoiceProfile": {
+  "fiscalProfileId": "string?"
+ },
+ "ProductCategory": {},
+ "ProductBrand": {},
+ "CustomPriceType": {
+  "deletedAt": "datetime?",
+  "isDefault": "boolean"
+ },
+ "ProductCustomPrice": {
+  "productId": "string",
+  "customPriceTypeId": "string"
+ },
+ "ProductStock": {
+  "productId": "string",
+  "locationId": "string?",
+  "stockQuantity": "decimal",
+  "minStockQuantity": "decimal?"
+ },
+ "ProductStorage": {
+  "productId": "string",
+  "locationId": "string?"
+ },
+ "Product": {
+  "id": "string",
+  "accountId": "string",
+  "userIdCreatedBy": "string",
+  "sellUnit": "enum MEASURE_UNIT",
+  "cost": "decimal",
+  "costCurrency": "enum Currency",
+  "costType": "enum CostType",
+  "satCategoryCode": "string?",
+  "createdAt": "datetime",
+  "updatedAt": "datetime",
+  "batchesEnabled": "boolean",
+  "prescriptionRequired": "boolean",
+  "type": "enum ProductType",
+  "profileId": "string",
+  "isStockable": "boolean"
+ },
+ "ProductProfile": {
+  "id": "string",
+  "accountId": "string",
+  "createdAt": "datetime",
+  "updatedAt": "datetime",
+  "userIdCreatedBy": "string",
+  "name": "string",
+  "slug": "string",
+  "description": "string?",
+  "barcode": "string?",
+  "sku": "string?",
+  "categoryId": "string?",
+  "displayInCatalog": "boolean",
+  "isSellable": "boolean",
+  "isTest": "boolean",
+  "parentId": "string?",
+  "variantConfig": "array/json?",
+  "isManufactured": "boolean"
+ },
+ "ProductCombination": {
+  "accountId": "string"
+ },
+ "ManufacturingBlueprintItem": {},
+ "Tax": {
+  "type": "string",
+  "isWithheld": "boolean"
+ },
+ "ProductBatchStock": {
+  "stockQuantity": "decimal",
+  "productBatchId": "string",
+  "minStockQuantity": "decimal?",
+  "locationId": "string?"
+ },
+ "ProductBatch": {
+  "productId": "string",
+  "code": "string",
+  "expiresAt": "datetime?"
+ },
+ "StockMovement": {
+  "id": "string",
+  "createdAt": "datetime",
+  "userIdCreatedBy": "string",
+  "accountId": "string",
+  "previousQuantity": "decimal",
+  "currentQuantity": "decimal",
+  "locationId": "string",
+  "productProfileId": "string",
+  "discriminator": "string?",
+  "discriminatorType": "string",
+  "discriminatorId": "string?",
+  "origin": "enum StockMovementOrigin",
+  "originId": "string?"
+ },
+ "CustomPaymentMethod": {
+  "allowsIncome": "boolean",
+  "allowsSpend": "boolean",
+  "method": "enum PaymentMethod"
+ },
+ "OrderPayment": {
+  "accountId": "string",
+  "total": "decimal",
+  "cancelsPaymentId": "string?",
+  "change": "decimal",
+  "unifiedDebtPaymentId": "string?",
+  "loyaltyPointsReward": "decimal"
+ },
+ "OrderPaymentNotification": {
+  "status": "enum QuotationStatus",
+  "clientId": "string"
+ },
+ "UnifiedDebtPayment": {
+  "deletedAt": "datetime?"
+ },
+ "OrderOnlinePayment": {},
+ "OrderItemProductBatchQuantity": {},
+ "OrderItemProduct": {
+  "id": "string",
+  "createdAt": "datetime",
+  "updatedAt": "datetime",
+  "orderId": "string",
+  "accountId": "string",
+  "productId": "string",
+  "customPriceTypeId": "string",
+  "quantity": "decimal",
+  "quantityUnit": "enum MEASURE_UNIT",
+  "unitPrice": "decimal",
+  "unitPriceCurrency": "enum Currency",
+  "unitCostNet": "decimal",
+  "unitCostNetCurrency": "enum Currency",
+  "total": "decimal",
+  "totalCurrency": "enum Currency",
+  "totalCostNet": "decimal",
+  "totalCostNetCurrency": "enum Currency",
+  "priceBreakpoint": "decimal",
+  "name": "string",
+  "type": "enum ProductType",
+  "priceType": "enum OrderItemPriceType",
+  "satCategoryCode": "string?",
+  "discountId": "string?"
+ },
+ "OrderDeliveryCost": {
+  "orderId": "string",
+  "amount": "decimal",
+  "amountCurrency": "enum Currency"
+ },
+ "OrderItemProductDiscount": {},
+ "OrderItemCartDiscount": {},
+ "Order": {
+  "originalTotal": "decimal",
+  "madeAt": "datetime",
+  "deletedAt": "datetime?",
+  "locationId": "string",
+  "orderSeriesId": "string",
+  "isTest": "boolean",
+  "isOffline": "boolean",
+  "wayOfPayment": "enum OrderWayOfPayment",
+  "shippingMethod": "enum OrderShippingMethod",
+  "quotationId": "string?",
+  "requestId": "string",
+  "withTaxes": "boolean",
+  "isSellingDigitalService": "boolean",
+  "loyaltyPointsRewardPercentage": "decimal"
+ },
+ "OrderSeries": {
+  "isDefault": "boolean"
+ },
+ "OrderRefund": {
+  "id": "string",
+  "orderId": "string",
+  "reason": "enum OrderRefundReason",
+  "createdAt": "datetime",
+  "updatedAt": "datetime",
+  "totalRefunded": "decimal",
+  "subtotalRefunded": "decimal",
+  "cancelledDebt": "decimal",
+  "totalCurrency": "enum Currency",
+  "userIdCreatedBy": "string"
+ },
+ "OrderItemRefundBatchQuantity": {},
+ "OrderItemRefund": {
+  "orderItemId": "string",
+  "orderRefundId": "string",
+  "quantityRefunded": "decimal"
+ },
+ "OrderRefundPayment": {
+  "accountId": "string",
+  "orderRefundId": "string",
+  "totalRefunded": "decimal"
+ },
+ "OrderDebt": {
+  "id": "string",
+  "createdAt": "datetime",
+  "updatedAt": "datetime",
+  "dueDate": "datetime",
+  "accountId": "string",
+  "orderId": "string",
+  "originalDebt": "decimal",
+  "currentDebt": "decimal",
+  "currency": "string",
+  "paymentIdCredit": "string"
+ },
+ "OrderJournal": {
+  "orderId": "string"
+ },
+ "QuotationJournal": {
+  "quotationId": "string?"
+ },
+ "SatCategory": {
+  "code": "string",
+  "description": "string",
+  "similarTerms": "string",
+  "parentCode": "decimal?"
+ },
+ "MeasureUnit": {},
+ "Purchase": {
+  "total": "decimal"
+ },
+ "PurchaseDebt": {
+  "dueDate": "datetime",
+  "originalDebt": "decimal"
+ },
+ "PurchasePayment": {
+  "accountId": "string"
+ },
+ "PurchaseItemProductBatchQuantity": {
+  "stockQuantity": "decimal",
+  "purchaseItemId": "string"
+ },
+ "PurchaseItem": {
+  "id": "string",
+  "createdAt": "datetime",
+  "updatedAt": "datetime",
+  "purchaseId": "string",
+  "productId": "string",
+  "quantityUnit": "enum MEASURE_UNIT"
+ },
+ "Expense": {
+  "concept": "string?",
+  "expenseNumber": "bigint",
+  "total": "decimal"
+ },
+ "ExpensePayment": {
+  "accountId": "string",
+  "expenseId": "string",
+  "total": "decimal",
+  "cashMovementId": "string?"
+ },
+ "ExpenseDebt": {
+  "dueDate": "datetime",
+  "currentDebt": "decimal",
+  "originalDebt": "decimal",
+  "currency": "string"
+ },
+ "Provider": {},
+ "Cashier": {
+  "deletedAt": "datetime?",
+  "isDefault": "boolean",
+  "locationId": "string?",
+  "orderSeriesId": "string?"
+ },
+ "CashierAudit": {
+  "createdAt": "datetime",
+  "updatedAt": "datetime",
+  "accountId": "string",
+  "userIdCreatedBy": "string",
+  "status": "enum PurchaseStatus",
+  "periodStart": "datetime",
+  "periodEnd": "datetime"
+ },
+ "CashierAuditItem": {
+  "createdAt": "datetime",
+  "updatedAt": "datetime",
+  "cashierAuditId": "string",
+  "totalExpected": "decimal",
+  "totalExpectedCurrency": "enum Currency"
+ },
+ "CashMovement": {
+  "id": "string",
+  "createdAt": "datetime",
+  "accountId": "string",
+  "userId": "string",
+  "details": "string?",
+  "amount": "decimal",
+  "currency": "string",
+  "cashierId": "string",
+  "type": "enum CashMovementType"
+ },
+ "Address": {
+  "id": "string",
+  "createdAt": "datetime",
+  "updatedAt": "datetime"
+ },
+ "FiscalRegime": {
+  "country": "enum Country?",
+  "code": "string"
+ },
+ "FiscalUseCase": {
+  "country": "enum Country?",
+  "code": "string"
+ },
+ "Invoice": {},
+ "InvoiceTypeToSeries": {},
+ "PulposSubscriptionInvoice": {},
+ "ClientDebtLimit": {},
+ "Client": {
+  "id": "string",
+  "userFriendlyId": "string",
+  "createdAt": "datetime",
+  "updatedAt": "datetime",
+  "accountId": "string?",
+  "userIdCreatedBy": "string?",
+  "name": "string",
+  "surname": "string",
+  "phoneNumber": "string",
+  "email": "string",
+  "fiscalProfileId": "string?",
+  "type": "enum ClientType",
+  "lastDebtReminderSentAt": "datetime?",
+  "loyaltyPoints": "decimal",
+  "aiAgentEnabled": "boolean"
+ },
+ "Image": {
+  "id": "string",
+  "createdAt": "datetime",
+  "updatedAt": "datetime",
+  "accountId": "string",
+  "userIdCreatedBy": "string",
+  "url": "string",
+  "filename": "string",
+  "externalId": "string",
+  "imageType": "enum ImageType",
+  "status": "enum ImageStatus",
+  "metadata": "json"
+ },
+ "File": {},
+ "OutlayInvoiceFile": {},
+ "StoreAgentKnowledgeFile": {},
+ "AccountSettings": {
+  "accountId": "string",
+  "enabledUnits": "array/json",
+  "accountFeatures": "json"
+ },
+ "ManufacturingSettings": {
+  "accountId": "string",
+  "defaultLocationId": "string",
+  "allowManufacturingMaterialsOutOfStock": "boolean"
+ },
+ "StockSettings": {
+  "accountId": "string",
+  "notifyMovingNegativeStock": "boolean",
+  "allowMovingNegativeStock": "boolean"
+ },
+ "QuotationSettings": {
+  "accountId": "string"
+ },
+ "OrderSettings": {
+  "accountId": "string"
+ },
+ "UpgradePromotion": {},
+ "NativeReview": {},
+ "PulposAppSuggestion": {
+  "userId": "string?",
+  "source": "enum PlatformSource",
+  "metadata": "json?"
+ },
+ "InvoicingSettings": {},
+ "EmailSendingConfiguration": {},
+ "ProductProfilePhoto": {
+  "imageId": "string?",
+  "index": "number",
+  "productProfileId": "string"
+ },
+ "Logo": {
+  "imageId": "string?",
+  "type": "string"
+ },
+ "ProductCategoryPhoto": {
+  "categoryId": "string?",
+  "imageId": "string?"
+ },
+ "Quotation": {
+  "userFriendlyId": "string",
+  "deletedAt": "datetime?",
+  "subtotal": "decimal",
+  "customPriceTypeId": "string?",
+  "notes": "string?",
+  "sellerId": "string?"
+ },
+ "QuotationItem": {
+  "id": "string",
+  "createdAt": "datetime",
+  "updatedAt": "datetime",
+  "quotationId": "string",
+  "productId": "string?",
+  "quantityUnit": "enum MEASURE_UNIT",
+  "customPriceTypeId": "string"
+ },
+ "QuotationManualEntryItem": {
+  "quotationItemId": "string",
+  "name": "string",
+  "cost": "decimal",
+  "costCurrency": "enum Currency"
+ },
+ "QuotationItemDiscount": {},
+ "QuotationCartDiscount": {},
+ "Catalog": {
+  "subdomain": "string"
+ },
+ "CatalogConfiguration": {
+  "id": "string",
+  "createdAt": "datetime",
+  "updatedAt": "datetime",
+  "catalogId": "string",
+  "name": "string",
+  "phoneNumber": "string",
+  "configProductsWithoutStock": "enum CatalogConfigProductsWithoutStock",
+  "configAcquisitionLimit": "enum CatalogConfigAcquisitionLimit",
+  "configCategories": "enum CatalogConfigCategories",
+  "locationOfOriginId": "string",
+  "sharedInInstagram": "boolean",
+  "sharedInWhatsApp": "boolean",
+  "uiVariant": "enum CatalogUIVariant",
+  "areClientCatalogsEnabled": "boolean",
+  "isVolumePricingEnabled": "boolean"
+ },
+ "LocationStockVisibilityToCatalog": {
+  "id": "string",
+  "createdAt": "datetime",
+  "catalogConfigurationId": "string",
+  "locationId": "string?"
+ },
+ "CatalogOrderShippingConfiguration": {
+  "id": "string",
+  "createdAt": "datetime",
+  "updatedAt": "datetime",
+  "catalogConfigurationId": "string"
+ },
+ "CatalogOrderPaymentConfiguration": {
+  "id": "string",
+  "createdAt": "datetime",
+  "updatedAt": "datetime",
+  "catalogConfigurationId": "string"
+ },
+ "MercadoPagoCredentials": {},
+ "CatalogHomePagePersonalization": {
+  "id": "string",
+  "catalogId": "string",
+  "createdAt": "datetime",
+  "updatedAt": "datetime"
+ },
+ "CatalogPhoto": {
+  "imageId": "string?",
+  "catalogId": "string",
+  "type": "string"
+ },
+ "CatalogBanner": {
+  "imageId": "string?",
+  "catalogId": "string",
+  "type": "string"
+ },
+ "CatalogVariantConfig": {
+  "path": "string",
+  "hidden": "boolean",
+  "customPriceTypeId": "string?"
+ },
+ "Prescription": {},
+ "GlobalInvoice": {},
+ "Transfer": {
+  "transferNumber": "bigint",
+  "deletedAt": "datetime?",
+  "status": "string",
+  "originId": "string",
+  "destinationId": "string"
+ },
+ "TransferItem": {
+  "id": "string",
+  "createdAt": "datetime",
+  "updatedAt": "datetime",
+  "transferId": "string",
+  "productId": "string?",
+  "quantitySent": "decimal",
+  "quantityReceived": "decimal",
+  "quantityUnit": "enum MEASURE_UNIT"
+ },
+ "TransferItemBatchQuantity": {},
+ "TransferEvent": {
+  "transferId": "string",
+  "userIdCreatedBy": "string?",
+  "type": "string"
+ },
+ "StockAdjustment": {
+  "stockAdjustmentNumber": "bigint",
+  "type": "string",
+  "reason": "enum StockMovementAdjustmentReason?"
+ },
+ "StockAdjustmentItem": {
+  "id": "string",
+  "createdAt": "datetime",
+  "updatedAt": "datetime",
+  "accountId": "string",
+  "stockAdjustmentId": "string",
+  "productId": "string",
+  "previousQuantity": "decimal",
+  "inputQuantity": "decimal",
+  "quantityUnit": "enum MEASURE_UNIT",
+  "unitCost": "decimal",
+  "unitPrice": "decimal"
+ },
+ "StockAdjustmentItemBatchQuantity": {
+  "id": "string",
+  "createdAt": "datetime",
+  "updatedAt": "datetime",
+  "accountId": "string"
+ },
+ "StockAdjustmentEvent": {
+  "stockAdjustmentId": "string",
+  "userIdCreatedBy": "string?",
+  "type": "string"
+ },
+ "ManufacturingOrder": {
+  "id": "string",
+  "accountId": "string",
+  "manufacturingOrderNumber": "bigint",
+  "createdAt": "datetime",
+  "updatedAt": "datetime",
+  "startedAt": "datetime?",
+  "finishedAt": "datetime?",
+  "status": "enum ManufacturingOrderStatus",
+  "initialQuantity": "decimal",
+  "manufacturedQuantity": "decimal?",
+  "locationId": "string",
+  "productProfileId": "string"
+ },
+ "ManufacturingOrderMaterialItem": {
+  "id": "string",
+  "materialId": "string",
+  "manufacturingOrderId": "string",
+  "quantity": "decimal",
+  "quantityUnit": "enum MEASURE_UNIT"
+ },
+ "ManufacturingOrderEvent": {
+  "userIdCreatedBy": "string?",
+  "type": "string"
+ },
+ "AccountAffiliation": {},
+ "AffiliationPayment": {},
+ "UserBankAccount": {},
+ "ClientsPaymentsBankAccount": {},
+ "PulposAppCommunication": {},
+ "StoreAgentConfiguration": {
+  "id": "string",
+  "createdAt": "datetime",
+  "updatedAt": "datetime",
+  "accountId": "string",
+  "testMessagesSentCount": "number",
+  "supportCallOfferedCount": "number",
+  "disclosesAiIdentity": "boolean",
+  "responseLength": "enum StoreAgentResponseLength",
+  "useEmojisInResponses": "boolean",
+  "defaultAccessCustomPriceTypeId": "string",
+  "outOfStockPolicy": "enum StoreAgentOutOfStockPolicy"
+ },
+ "StoreAgentAccessToLocation": {
+  "id": "string",
+  "createdAt": "datetime",
+  "locationId": "string?"
+ },
+ "StoreAgentFAQ": {
+  "id": "string",
+  "createdAt": "datetime",
+  "updatedAt": "datetime",
+  "userIdCreatedBy": "string",
+  "category": "json?",
+  "description": "string?"
+ },
+ "StoreAgentDelegationPolicy": {
+  "id": "string",
+  "createdAt": "datetime",
+  "updatedAt": "datetime",
+  "userIdCreatedBy": "string",
+  "description": "string?"
+ },
+ "AiConversation": {
+  "userId": "string?"
+ },
+ "AssistantConversation": {},
+ "AssistantMessage": {},
+ "AssistantMessageAttachment": {},
+ "GestoPagosCredentials": {},
+ "ExternalDigitalServiceConfiguration": {
+  "id": "string",
+  "createdAt": "datetime",
+  "updatedAt": "datetime",
+  "accountId": "string",
+  "hasMadeFirstBalanceDeposit": "boolean",
+  "commissionCurrency": "enum Currency",
+  "rechargesCommission": "decimal",
+  "servicePaymentsCommission": "decimal",
+  "giftCardsCommission": "decimal",
+  "isEnabled": "boolean"
+ },
+ "ExternalDigitalServicePaymentNotification": {},
+ "ExternalDigitalService": {},
+ "OrderDigitalServiceItem": {},
+ "GestoPagosRequestLog": {},
+ "Seller": {
+  "userId": "string?",
+  "surname": "string",
+  "deletedAt": "datetime?"
+ },
+ "Promotion": {
+  "id": "string",
+  "createdAt": "datetime",
+  "updatedAt": "datetime",
+  "accountId": "string",
+  "name": "string",
+  "type": "enum PromotionType",
+  "application": "enum PromotionApplicationType",
+  "validFrom": "datetime",
+  "validUntil": "datetime",
+  "userIdCreatedBy": "string",
+  "restrictToClients": "string",
+  "daysOfWeekLimitation": "array/json"
+ },
+ "PromotionClientLimitation": {},
+ "PromotionPriceListLimitation": {},
+ "PromotionLocationLimitation": {},
+ "CartTotalPromotion": {
+  "id": "string",
+  "accountId": "string",
+  "promotionId": "string",
+  "amount": "decimal",
+  "amountType": "enum ItemDiscountType"
+ },
+ "SingleTargetPromotion": {
+  "id": "string",
+  "accountId": "string",
+  "promotionId": "string",
+  "amount": "decimal",
+  "amountType": "enum ItemDiscountType"
+ },
+ "MultiTargetPromotion": {},
+ "Reconciliation": {
+  "deletedAt": "datetime?"
+ },
+ "ReconciliationMovement": {
+  "id": "string",
+  "createdAt": "datetime",
+  "updatedAt": "datetime",
+  "madeAt": "datetime",
+  "accountId": "string",
+  "type": "string",
+  "status": "string"
+ },
+ "ReconciliationMovementToPulposTransaction": {},
+ "ReconciliationSource": {},
+ "PaymentMethodReconciliationSource": {},
+ "WhatsAppBusinessCredentials": {
+  "displayPhoneNumber": "string",
+  "displayName": "string"
+ },
+ "PlatformConversation": {
+  "id": "string",
+  "createdAt": "datetime",
+  "updatedAt": "datetime",
+  "accountId": "string",
+  "displayPhoneNumber": "string",
+  "displayName": "string",
+  "lastMessageAt": "datetime",
+  "lastInboundMessageAt": "datetime",
+  "isAssignedToAI": "boolean",
+  "isTest": "boolean",
+  "source": "enum PlatformSource",
+  "externalUserId": "string"
+ },
+ "PlatformMessage": {
+  "id": "string",
+  "createdAt": "datetime",
+  "updatedAt": "datetime",
+  "direction": "enum PlatformMessageDirection",
+  "messageType": "enum PlatformMessageType",
+  "status": "enum PlatformMessageStatus",
+  "text": "string",
+  "origin": "string",
+  "platformTimestamp": "datetime",
+  "externalMessageId": "string",
+  "conversationId": "string",
+  "accountId": "string"
+ },
+ "PlatformAudio": {},
+ "BillableAgentConversation": {
+  "conversationId": "string"
+ },
+ "LoyaltyProgram": {
+  "rewardPercentage": "decimal",
+  "minCartTotalLimitation": "decimal?"
+ },
+ "LoyaltyProgramPriceListLimitation": {},
+ "LoyaltyProgramLocationLimitation": {},
+ "LoyaltyProgramProductSpecificReward": {
+  "accountId": "string",
+  "loyaltyProgramId": "string",
+  "productProfileId": "string",
+  "rewardPercentage": "decimal"
+ },
+ "LoyaltyProgramCategorySpecificReward": {
+  "accountId": "string",
+  "loyaltyProgramId": "string",
+  "categoryId": "string",
+  "rewardPercentage": "decimal"
+ },
+ "LoyaltyProgramMovement": {
+  "id": "string",
+  "createdAt": "datetime",
+  "accountId": "string",
+  "userIdCreatedBy": "string",
+  "clientId": "string",
+  "previousQuantity": "decimal",
+  "currentQuantity": "decimal",
+  "origin": "string",
+  "orderId": "string"
+ },
+ "PulposGlobalConfiguration": {}
+}

@@ -1,7 +1,7 @@
 # Catálogo de modelos de Pulpos (156 tablas)
 
 Derivado del cliente web: `Prisma.<Modelo>ScalarFieldEnum` (columnas exactas) + esquemas zod del bundle (tipos) + respuestas reales de la API.
-Tipos con `?` = nullable. `—` = tipo no observable en el bundle (ver enums y muestras). Las relaciones son **inferidas por nombre de columna** y corregidas a mano donde se verificó con datos reales.
+Tipos con `?` = nullable. Tipos con `~` = **inferidos de respuestas reales** de la API (no del esquema oficial; `decimal` = string numérico). `—` = sin dato de tipo todavía. Las relaciones son **inferidas por nombre de columna** y corregidas a mano donde se verificó con datos reales.
 
 ## Índice de dominios
 
@@ -52,10 +52,10 @@ Tipos con `?` = nullable. `—` = tipo no observable en el bundle (ver enums y m
 | `chargebeeSubscriptionId` | string |  |
 | `chargebeeCustomerId` | string |  |
 | `hubSpotContactId` | string |  |
-| `amplitudeId` | — |  |
+| `amplitudeId` | ~string |  |
 | `createdAt` | datetime |  |
 | `updatedAt` | datetime |  |
-| `accountType` | — |  |
+| `accountType` | ~enum AccountType |  |
 
 ### OnboardingStatus
 
@@ -73,26 +73,26 @@ Tipos con `?` = nullable. `—` = tipo no observable en el bundle (ver enums y m
 
 | columna | tipo | relación |
 |---|---|---|
-| `id` | — |  |
-| `openIdSub` | — |  |
-| `accountId` | — | Account |
-| `email` | — |  |
-| `name` | — |  |
-| `surname` | — |  |
-| `phoneNumber` | — |  |
-| `isAccountOwner` | — |  |
-| `lastLogin` | — |  |
+| `id` | ~string |  |
+| `openIdSub` | ~string |  |
+| `accountId` | ~string | Account |
+| `email` | ~string |  |
+| `name` | ~string |  |
+| `surname` | ~string |  |
+| `phoneNumber` | ~string |  |
+| `isAccountOwner` | ~boolean |  |
+| `lastLogin` | ~datetime? |  |
 | `seenReleaseStartDate` | — |  |
-| `updatesHubLastSeenAt` | — |  |
-| `updatesHubLastDismissedAt` | — |  |
-| `createdAt` | — |  |
-| `updatedAt` | — |  |
+| `updatesHubLastSeenAt` | ~datetime |  |
+| `updatesHubLastDismissedAt` | ~datetime |  |
+| `createdAt` | ~datetime |  |
+| `updatedAt` | ~datetime |  |
 | `deletedAt` | — |  |
-| `slug` | — |  |
-| `role` | — |  |
-| `advancedPermissions` | — |  |
+| `slug` | ~string |  |
+| `role` | ~enum Role |  |
+| `advancedPermissions` | ~array/json |  |
 | `defaultPriceTypeId` | — | CustomPriceType |
-| `authProviders` | — |  |
+| `authProviders` | ~array/json |  |
 
 ### ResellerProfile
 
@@ -123,31 +123,31 @@ Tipos con `?` = nullable. `—` = tipo no observable en el bundle (ver enums y m
 | `typeOfSale` | enum TypeOfSale? |  |
 | `fiscalCode` | string? |  |
 | `numberOfStores` | decimal |  |
-| `numberOfEmployees` | — |  |
-| `ticketDetailsId` | — | TicketDetails |
+| `numberOfEmployees` | ~decimal |  |
+| `ticketDetailsId` | ~string | TicketDetails |
 | `phoneNumber` | — |  |
 | `email` | — |  |
 | `selfInvoiceProfileId` | — | SelfInvoiceProfile |
-| `accountantsEmails` | — |  |
+| `accountantsEmails` | ~array/json |  |
 
 ### Location
 
 | columna | tipo | relación |
 |---|---|---|
-| `name` | — |  |
-| `id` | — |  |
-| `phoneNumber` | — |  |
-| `email` | — |  |
-| `type` | — |  |
-| `createdAt` | — |  |
-| `updatedAt` | — |  |
+| `name` | ~string |  |
+| `id` | ~string |  |
+| `phoneNumber` | ~string? |  |
+| `email` | ~string? |  |
+| `type` | ~string |  |
+| `createdAt` | ~datetime |  |
+| `updatedAt` | ~datetime |  |
 | `deletedAt` | — |  |
-| `isDefault` | — |  |
-| `defaultPriceTypeId` | — | CustomPriceType |
+| `isDefault` | ~boolean |  |
+| `defaultPriceTypeId` | ~string? | CustomPriceType |
 | `addressId` | — | Address |
-| `accountId` | — | Account |
-| `userIdCreatedBy` | — | User |
-| `invoicingSettingsId` | — | InvoicingSettings |
+| `accountId` | ~string? | Account |
+| `userIdCreatedBy` | ~string? | User |
+| `invoicingSettingsId` | ~string | InvoicingSettings |
 
 ### TicketDetails
 
@@ -168,9 +168,9 @@ Tipos con `?` = nullable. `—` = tipo no observable en el bundle (ver enums y m
 
 | columna | tipo | relación |
 |---|---|---|
-| `id` | — |  |
-| `createdAt` | — |  |
-| `updatedAt` | — |  |
+| `id` | ~string |  |
+| `createdAt` | ~datetime |  |
+| `updatedAt` | ~datetime |  |
 | `streetAddress` | string? |  |
 | `streetNumber` | string? |  |
 | `unitNumber` | string? |  |
@@ -185,18 +185,18 @@ Tipos con `?` = nullable. `—` = tipo no observable en el bundle (ver enums y m
 
 | columna | tipo | relación |
 |---|---|---|
-| `id` | — |  |
-| `createdAt` | — |  |
-| `updatedAt` | — |  |
+| `id` | ~string |  |
+| `createdAt` | ~datetime |  |
+| `updatedAt` | ~datetime |  |
 | `deletedAt` | — |  |
-| `accountId` | — | Account |
-| `userIdCreatedBy` | — | User |
-| `url` | — |  |
-| `filename` | — |  |
-| `externalId` | — |  |
-| `imageType` | — |  |
-| `status` | — |  |
-| `metadata` | — |  |
+| `accountId` | ~string | Account |
+| `userIdCreatedBy` | ~string | User |
+| `url` | ~string |  |
+| `filename` | ~string |  |
+| `externalId` | ~string |  |
+| `imageType` | ~enum ImageType |  |
+| `status` | ~enum ImageStatus |  |
+| `metadata` | ~json |  |
 
 ### File
 
@@ -222,37 +222,37 @@ Tipos con `?` = nullable. `—` = tipo no observable en el bundle (ver enums y m
 
 | columna | tipo | relación |
 |---|---|---|
-| `accountId` | — | Account |
+| `accountId` | ~string | Account |
 | `allowPersonalizedPrices` | boolean |  |
 | `whiteLabelBranding` | boolean |  |
 | `allowedPaymentMethods` | enum PaymentMethod |  |
-| `enabledUnits` | — |  |
+| `enabledUnits` | ~array/json |  |
 | `defaultClientDebtLimit` | decimal? |  |
 | `showClientsPortalURLOnTickets` | boolean |  |
 | `showClientsPortalURLOnPDFs` | boolean |  |
-| `accountFeatures` | — |  |
+| `accountFeatures` | ~json |  |
 
 ### ManufacturingSettings
 
 | columna | tipo | relación |
 |---|---|---|
-| `accountId` | — | Account |
-| `defaultLocationId` | — | Location |
-| `allowManufacturingMaterialsOutOfStock` | — |  |
+| `accountId` | ~string | Account |
+| `defaultLocationId` | ~string | Location |
+| `allowManufacturingMaterialsOutOfStock` | ~boolean |  |
 
 ### StockSettings
 
 | columna | tipo | relación |
 |---|---|---|
-| `accountId` | — | Account |
-| `notifyMovingNegativeStock` | — |  |
-| `allowMovingNegativeStock` | — |  |
+| `accountId` | ~string | Account |
+| `notifyMovingNegativeStock` | ~boolean |  |
+| `allowMovingNegativeStock` | ~boolean |  |
 
 ### QuotationSettings
 
 | columna | tipo | relación |
 |---|---|---|
-| `accountId` | — | Account |
+| `accountId` | ~string | Account |
 | `breakdownTaxesInQuotations` | boolean |  |
 | `notifyInsufficientStockForQuotation` | boolean |  |
 | `quotationsFixedNote` | string? |  |
@@ -262,7 +262,7 @@ Tipos con `?` = nullable. `—` = tipo no observable en el bundle (ver enums y m
 
 | columna | tipo | relación |
 |---|---|---|
-| `accountId` | — | Account |
+| `accountId` | ~string | Account |
 | `batchStrategy` | enum SettingBatchStrategy |  |
 | `allowSellingOutOfStock` | boolean |  |
 | `notifyInsufficientStockForSale` | boolean |  |
@@ -299,10 +299,10 @@ Tipos con `?` = nullable. `—` = tipo no observable en el bundle (ver enums y m
 | `id` | string |  |
 | `createdAt` | datetime |  |
 | `accountId` | cuid | Account |
-| `userId` | — | User |
+| `userId` | ~string? | User |
 | `content` | string |  |
-| `source` | — |  |
-| `metadata` | — |  |
+| `source` | ~enum PlatformSource |  |
+| `metadata` | ~json? |  |
 
 ### InvoicingSettings
 
@@ -336,8 +336,8 @@ Tipos con `?` = nullable. `—` = tipo no observable en el bundle (ver enums y m
 | `createdAt` | datetime |  |
 | `updatedAt` | datetime |  |
 | `accountId` | cuid | Account |
-| `imageId` | — | Image |
-| `type` | — |  |
+| `imageId` | ~string? | Image |
+| `type` | ~string |  |
 
 ### AccountAffiliation
 
@@ -427,12 +427,12 @@ Tipos con `?` = nullable. `—` = tipo no observable en el bundle (ver enums y m
 |---|---|---|
 | `id` | cuid |  |
 | `accountId` | cuid | Account |
-| `userId` | — | User |
+| `userId` | ~string? | User |
 | `name` | string |  |
-| `surname` | — |  |
+| `surname` | ~string |  |
 | `createdAt` | datetime |  |
 | `updatedAt` | datetime |  |
-| `deletedAt` | — |  |
+| `deletedAt` | ~datetime? |  |
 
 ### PulposGlobalConfiguration
 
@@ -473,11 +473,11 @@ Tipos con `?` = nullable. `—` = tipo no observable en el bundle (ver enums y m
 | `id` | cuid |  |
 | `createdAt` | datetime |  |
 | `updatedAt` | datetime |  |
-| `deletedAt` | — |  |
+| `deletedAt` | ~datetime? |  |
 | `accountId` | cuid | Account |
 | `userIdCreatedBy` | cuid | User |
 | `name` | string |  |
-| `isDefault` | — |  |
+| `isDefault` | ~boolean |  |
 
 ### ProductCustomPrice
 
@@ -487,8 +487,8 @@ Tipos con `?` = nullable. `—` = tipo no observable en el bundle (ver enums y m
 | `createdAt` | datetime |  |
 | `updatedAt` | datetime |  |
 | `accountId` | cuid | Account |
-| `productId` | — | Product |
-| `customPriceTypeId` | — | CustomPriceType |
+| `productId` | ~string | Product |
+| `customPriceTypeId` | ~string | CustomPriceType |
 | `price` | decimal |  |
 | `priceCurrency` | enum Currency |  |
 | `breakpoint` | decimal |  |
@@ -497,52 +497,52 @@ Tipos con `?` = nullable. `—` = tipo no observable en el bundle (ver enums y m
 
 | columna | tipo | relación |
 |---|---|---|
-| `id` | — |  |
-| `accountId` | — | Account |
-| `userIdCreatedBy` | — | User |
-| `sellUnit` | — |  |
-| `cost` | — |  |
-| `costCurrency` | — |  |
-| `costType` | — |  |
-| `satCategoryCode` | — |  |
-| `createdAt` | — |  |
-| `updatedAt` | — |  |
-| `batchesEnabled` | — |  |
-| `prescriptionRequired` | — |  |
-| `type` | — |  |
-| `profileId` | — | ProductProfile |
-| `isStockable` | — |  |
+| `id` | ~string |  |
+| `accountId` | ~string | Account |
+| `userIdCreatedBy` | ~string | User |
+| `sellUnit` | ~enum MEASURE_UNIT |  |
+| `cost` | ~decimal |  |
+| `costCurrency` | ~enum Currency |  |
+| `costType` | ~enum CostType |  |
+| `satCategoryCode` | ~string? |  |
+| `createdAt` | ~datetime |  |
+| `updatedAt` | ~datetime |  |
+| `batchesEnabled` | ~boolean |  |
+| `prescriptionRequired` | ~boolean |  |
+| `type` | ~enum ProductType |  |
+| `profileId` | ~string | ProductProfile |
+| `isStockable` | ~boolean |  |
 
 ### ProductProfile
 
 | columna | tipo | relación |
 |---|---|---|
-| `id` | — |  |
-| `accountId` | — | Account |
-| `createdAt` | — |  |
-| `updatedAt` | — |  |
+| `id` | ~string |  |
+| `accountId` | ~string | Account |
+| `createdAt` | ~datetime |  |
+| `updatedAt` | ~datetime |  |
 | `deletedAt` | — |  |
-| `userIdCreatedBy` | — | User |
-| `name` | — |  |
-| `slug` | — |  |
-| `description` | — |  |
-| `barcode` | — |  |
-| `sku` | — |  |
-| `categoryId` | — |  |
+| `userIdCreatedBy` | ~string | User |
+| `name` | ~string |  |
+| `slug` | ~string |  |
+| `description` | ~string? |  |
+| `barcode` | ~string? |  |
+| `sku` | ~string? |  |
+| `categoryId` | ~string? |  |
 | `brandId` | — |  |
 | `hiddenAt` | — |  |
-| `displayInCatalog` | — |  |
-| `isSellable` | — |  |
-| `isTest` | — |  |
-| `parentId` | — | ProductProfile |
-| `variantConfig` | — |  |
-| `isManufactured` | — |  |
+| `displayInCatalog` | ~boolean |  |
+| `isSellable` | ~boolean |  |
+| `isTest` | ~boolean |  |
+| `parentId` | ~string? | ProductProfile |
+| `variantConfig` | ~array/json? |  |
+| `isManufactured` | ~boolean |  |
 
 ### ProductCombination
 
 | columna | tipo | relación |
 |---|---|---|
-| `accountId` | — | Account |
+| `accountId` | ~string | Account |
 | `comboId` | cuid | ProductProfile |
 | `comboItemId` | cuid | ProductProfile |
 | `quantity` | decimal |  |
@@ -561,9 +561,9 @@ Tipos con `?` = nullable. `—` = tipo no observable en el bundle (ver enums y m
 |---|---|---|
 | `id` | cuid |  |
 | `percentage` | number |  |
-| `type` | — |  |
+| `type` | ~string |  |
 | `isExempt` | boolean |  |
-| `isWithheld` | — |  |
+| `isWithheld` | ~boolean |  |
 | `createdAt` | datetime |  |
 | `updatedAt` | datetime |  |
 
@@ -571,10 +571,10 @@ Tipos con `?` = nullable. `—` = tipo no observable en el bundle (ver enums y m
 
 | columna | tipo | relación |
 |---|---|---|
-| `code` | — |  |
-| `description` | — |  |
-| `similarTerms` | — |  |
-| `parentCode` | — |  |
+| `code` | ~string |  |
+| `description` | ~string |  |
+| `similarTerms` | ~string |  |
+| `parentCode` | ~decimal? |  |
 
 ### MeasureUnit
 
@@ -590,10 +590,10 @@ Tipos con `?` = nullable. `—` = tipo no observable en el bundle (ver enums y m
 |---|---|---|
 | `createdAt` | datetime |  |
 | `updatedAt` | datetime |  |
-| `imageId` | — | Image |
+| `imageId` | ~string? | Image |
 | `accountId` | cuid | Account |
-| `index` | — |  |
-| `productProfileId` | — | ProductProfile |
+| `index` | ~number |  |
+| `productProfileId` | ~string | ProductProfile |
 
 ### ProductCategoryPhoto
 
@@ -603,8 +603,8 @@ Tipos con `?` = nullable. `—` = tipo no observable en el bundle (ver enums y m
 | `createdAt` | datetime |  |
 | `updatedAt` | datetime |  |
 | `accountId` | cuid | Account |
-| `categoryId` | — |  |
-| `imageId` | — | Image |
+| `categoryId` | ~string? |  |
+| `imageId` | ~string? | Image |
 
 
 ## Inventario
@@ -615,10 +615,10 @@ Tipos con `?` = nullable. `—` = tipo no observable en el bundle (ver enums y m
 |---|---|---|
 | `id` | cuid |  |
 | `accountId` | cuid | Account |
-| `productId` | — | Product |
-| `locationId` | — | Location |
-| `stockQuantity` | — |  |
-| `minStockQuantity` | — |  |
+| `productId` | ~string | Product |
+| `locationId` | ~string? | Location |
+| `stockQuantity` | ~decimal |  |
+| `minStockQuantity` | ~decimal? |  |
 | `createdAt` | datetime |  |
 | `updatedAt` | datetime |  |
 
@@ -627,8 +627,8 @@ Tipos con `?` = nullable. `—` = tipo no observable en el bundle (ver enums y m
 | columna | tipo | relación |
 |---|---|---|
 | `accountId` | cuid | Account |
-| `productId` | — | Product |
-| `locationId` | — | Location |
+| `productId` | ~string | Product |
+| `locationId` | ~string? | Location |
 | `createdAt` | datetime |  |
 | `updatedAt` | datetime |  |
 | `placement` | — |  |
@@ -641,10 +641,10 @@ Tipos con `?` = nullable. `—` = tipo no observable en el bundle (ver enums y m
 | `createdAt` | datetime |  |
 | `updatedAt` | datetime |  |
 | `accountId` | cuid | Account |
-| `stockQuantity` | — |  |
-| `productBatchId` | — | ProductBatch |
-| `minStockQuantity` | — |  |
-| `locationId` | — | Location |
+| `stockQuantity` | ~decimal |  |
+| `productBatchId` | ~string | ProductBatch |
+| `minStockQuantity` | ~decimal? |  |
+| `locationId` | ~string? | Location |
 
 ### ProductBatch
 
@@ -655,9 +655,9 @@ Tipos con `?` = nullable. `—` = tipo no observable en el bundle (ver enums y m
 | `updatedAt` | datetime |  |
 | `accountId` | cuid | Account |
 | `userIdCreatedBy` | cuid | User |
-| `productId` | — | Product |
-| `code` | — |  |
-| `expiresAt` | — |  |
+| `productId` | ~string | Product |
+| `code` | ~string |  |
+| `expiresAt` | ~datetime? |  |
 | `fabricatedAt` | — |  |
 | `deletedAt` | — |  |
 
@@ -665,47 +665,47 @@ Tipos con `?` = nullable. `—` = tipo no observable en el bundle (ver enums y m
 
 | columna | tipo | relación |
 |---|---|---|
-| `id` | — |  |
-| `createdAt` | — |  |
-| `userIdCreatedBy` | — | User |
-| `accountId` | — | Account |
-| `previousQuantity` | — |  |
-| `currentQuantity` | — |  |
-| `locationId` | — | Location |
-| `productProfileId` | — | ProductProfile |
-| `discriminator` | — |  |
-| `discriminatorType` | — |  |
-| `discriminatorId` | — |  |
+| `id` | ~string |  |
+| `createdAt` | ~datetime |  |
+| `userIdCreatedBy` | ~string | User |
+| `accountId` | ~string | Account |
+| `previousQuantity` | ~decimal |  |
+| `currentQuantity` | ~decimal |  |
+| `locationId` | ~string | Location |
+| `productProfileId` | ~string | ProductProfile |
+| `discriminator` | ~string? |  |
+| `discriminatorType` | ~string |  |
+| `discriminatorId` | ~string? |  |
 | `adjustmentReason` | — |  |
-| `origin` | — |  |
-| `originId` | — |  |
+| `origin` | ~enum StockMovementOrigin |  |
+| `originId` | ~string? |  |
 
 ### Transfer
 
 | columna | tipo | relación |
 |---|---|---|
 | `id` | cuid |  |
-| `transferNumber` | — |  |
+| `transferNumber` | ~bigint |  |
 | `createdAt` | datetime |  |
 | `updatedAt` | datetime |  |
-| `deletedAt` | — |  |
+| `deletedAt` | ~datetime? |  |
 | `accountId` | cuid | Account |
-| `status` | — |  |
-| `originId` | — | Location |
-| `destinationId` | — | Location |
+| `status` | ~string |  |
+| `originId` | ~string | Location |
+| `destinationId` | ~string | Location |
 
 ### TransferItem
 
 | columna | tipo | relación |
 |---|---|---|
-| `id` | — |  |
-| `createdAt` | — |  |
-| `updatedAt` | — |  |
-| `transferId` | — | Transfer |
-| `productId` | — | Product |
-| `quantitySent` | — |  |
-| `quantityReceived` | — |  |
-| `quantityUnit` | — |  |
+| `id` | ~string |  |
+| `createdAt` | ~datetime |  |
+| `updatedAt` | ~datetime |  |
+| `transferId` | ~string | Transfer |
+| `productId` | ~string? | Product |
+| `quantitySent` | ~decimal |  |
+| `quantityReceived` | ~decimal |  |
+| `quantityUnit` | ~enum MEASURE_UNIT |  |
 
 ### TransferItemBatchQuantity
 
@@ -725,9 +725,9 @@ Tipos con `?` = nullable. `—` = tipo no observable en el bundle (ver enums y m
 |---|---|---|
 | `id` | string |  |
 | `createdAt` | datetime |  |
-| `transferId` | — | Transfer |
-| `userIdCreatedBy` | — | User |
-| `type` | — |  |
+| `transferId` | ~string | Transfer |
+| `userIdCreatedBy` | ~string? | User |
+| `type` | ~string |  |
 | `content` | string |  |
 
 ### StockAdjustment
@@ -735,7 +735,7 @@ Tipos con `?` = nullable. `—` = tipo no observable en el bundle (ver enums y m
 | columna | tipo | relación |
 |---|---|---|
 | `id` | cuid |  |
-| `stockAdjustmentNumber` | — |  |
+| `stockAdjustmentNumber` | ~bigint |  |
 | `createdAt` | datetime |  |
 | `updatedAt` | datetime |  |
 | `deletedAt` | datetime? |  |
@@ -743,34 +743,34 @@ Tipos con `?` = nullable. `—` = tipo no observable en el bundle (ver enums y m
 | `locationId` | cuid | Location |
 | `userIdCreatedBy` | cuid | User |
 | `status` | enum PurchaseStatus |  |
-| `type` | — |  |
-| `reason` | — |  |
+| `type` | ~string |  |
+| `reason` | ~enum StockMovementAdjustmentReason? |  |
 | `notes` | string? |  |
 
 ### StockAdjustmentItem
 
 | columna | tipo | relación |
 |---|---|---|
-| `id` | — |  |
-| `createdAt` | — |  |
-| `updatedAt` | — |  |
-| `accountId` | — | Account |
-| `stockAdjustmentId` | — | StockAdjustment |
-| `productId` | — | Product |
-| `previousQuantity` | — |  |
-| `inputQuantity` | — |  |
-| `quantityUnit` | — |  |
-| `unitCost` | — |  |
-| `unitPrice` | — |  |
+| `id` | ~string |  |
+| `createdAt` | ~datetime |  |
+| `updatedAt` | ~datetime |  |
+| `accountId` | ~string | Account |
+| `stockAdjustmentId` | ~string | StockAdjustment |
+| `productId` | ~string | Product |
+| `previousQuantity` | ~decimal |  |
+| `inputQuantity` | ~decimal |  |
+| `quantityUnit` | ~enum MEASURE_UNIT |  |
+| `unitCost` | ~decimal |  |
+| `unitPrice` | ~decimal |  |
 
 ### StockAdjustmentItemBatchQuantity
 
 | columna | tipo | relación |
 |---|---|---|
-| `id` | — |  |
-| `createdAt` | — |  |
-| `updatedAt` | — |  |
-| `accountId` | — | Account |
+| `id` | ~string |  |
+| `createdAt` | ~datetime |  |
+| `updatedAt` | ~datetime |  |
+| `accountId` | ~string | Account |
 | `stockAdjustmentItemId` | — | StockAdjustmentItem |
 | `productBatchId` | cuid | ProductBatch |
 | `code` | string |  |
@@ -786,39 +786,39 @@ Tipos con `?` = nullable. `—` = tipo no observable en el bundle (ver enums y m
 | `id` | string |  |
 | `createdAt` | datetime |  |
 | `accountId` | cuid | Account |
-| `stockAdjustmentId` | — | StockAdjustment |
-| `userIdCreatedBy` | — | User |
-| `type` | — |  |
+| `stockAdjustmentId` | ~string | StockAdjustment |
+| `userIdCreatedBy` | ~string? | User |
+| `type` | ~string |  |
 | `content` | string |  |
 
 ### ManufacturingOrder
 
 | columna | tipo | relación |
 |---|---|---|
-| `id` | — |  |
-| `accountId` | — | Account |
-| `manufacturingOrderNumber` | — |  |
-| `createdAt` | — |  |
-| `updatedAt` | — |  |
-| `startedAt` | — |  |
-| `finishedAt` | — |  |
+| `id` | ~string |  |
+| `accountId` | ~string | Account |
+| `manufacturingOrderNumber` | ~bigint |  |
+| `createdAt` | ~datetime |  |
+| `updatedAt` | ~datetime |  |
+| `startedAt` | ~datetime? |  |
+| `finishedAt` | ~datetime? |  |
 | `deletedAt` | — |  |
 | `notes` | — |  |
-| `status` | — |  |
-| `initialQuantity` | — |  |
-| `manufacturedQuantity` | — |  |
-| `locationId` | — | Location |
-| `productProfileId` | — | ProductProfile |
+| `status` | ~enum ManufacturingOrderStatus |  |
+| `initialQuantity` | ~decimal |  |
+| `manufacturedQuantity` | ~decimal? |  |
+| `locationId` | ~string | Location |
+| `productProfileId` | ~string | ProductProfile |
 
 ### ManufacturingOrderMaterialItem
 
 | columna | tipo | relación |
 |---|---|---|
-| `id` | — |  |
-| `materialId` | — | ProductProfile |
-| `manufacturingOrderId` | — | ManufacturingOrder |
-| `quantity` | — |  |
-| `quantityUnit` | — |  |
+| `id` | ~string |  |
+| `materialId` | ~string | ProductProfile |
+| `manufacturingOrderId` | ~string | ManufacturingOrder |
+| `quantity` | ~decimal |  |
+| `quantityUnit` | ~enum MEASURE_UNIT |  |
 
 ### ManufacturingOrderEvent
 
@@ -827,8 +827,8 @@ Tipos con `?` = nullable. `—` = tipo no observable en el bundle (ver enums y m
 | `id` | string |  |
 | `createdAt` | datetime |  |
 | `manufacturingOrderId` | — | ManufacturingOrder |
-| `userIdCreatedBy` | — | User |
-| `type` | — |  |
+| `userIdCreatedBy` | ~string? | User |
+| `type` | ~string |  |
 | `content` | string |  |
 
 
@@ -845,9 +845,9 @@ Tipos con `?` = nullable. `—` = tipo no observable en el bundle (ver enums y m
 | `hiddenAt` | — |  |
 | `accountId` | cuid | Account |
 | `name` | string |  |
-| `allowsIncome` | — |  |
-| `allowsSpend` | — |  |
-| `method` | — |  |
+| `allowsIncome` | ~boolean |  |
+| `allowsSpend` | ~boolean |  |
+| `method` | ~enum PaymentMethod |  |
 | `reconciliationSourceId` | — | ReconciliationSource |
 
 ### OrderPayment
@@ -859,20 +859,20 @@ Tipos con `?` = nullable. `—` = tipo no observable en el bundle (ver enums y m
 | `createdAt` | datetime |  |
 | `updatedAt` | datetime |  |
 | `deletedAt` | datetime? |  |
-| `accountId` | — | Account |
+| `accountId` | ~string | Account |
 | `userIdCreatedBy` | cuid | User |
 | `orderId` | cuid | Order |
 | `method` | enum PaymentMethod |  |
-| `total` | — |  |
+| `total` | ~decimal |  |
 | `totalCurrency` | enum Currency |  |
-| `cancelsPaymentId` | — | OrderPayment (CREDIT que se liquida) |
+| `cancelsPaymentId` | ~string? | OrderPayment (CREDIT que se liquida) |
 | `invoiceId` | — | Invoice |
 | `cashierId` | cuid | Cashier |
-| `change` | — |  |
-| `unifiedDebtPaymentId` | — | UnifiedDebtPayment |
+| `change` | ~decimal |  |
+| `unifiedDebtPaymentId` | ~string? | UnifiedDebtPayment |
 | `orderPaymentNotificationId` | — | OrderPaymentNotification |
 | `customPaymentMethodId` | cuid? | CustomPaymentMethod |
-| `loyaltyPointsReward` | — |  |
+| `loyaltyPointsReward` | ~decimal |  |
 
 ### OrderPaymentNotification
 
@@ -882,8 +882,8 @@ Tipos con `?` = nullable. `—` = tipo no observable en el bundle (ver enums y m
 | `accountId` | cuid | Account |
 | `createdAt` | datetime |  |
 | `updatedAt` | datetime |  |
-| `status` | — |  |
-| `clientId` | — | Client |
+| `status` | ~enum QuotationStatus |  |
+| `clientId` | ~string | Client |
 | `amount` | — |  |
 | `amountCurrency` | — |  |
 | `paymentReceiptImageId` | — | Image |
@@ -895,7 +895,7 @@ Tipos con `?` = nullable. `—` = tipo no observable en el bundle (ver enums y m
 | `id` | cuid |  |
 | `createdAt` | datetime |  |
 | `updatedAt` | datetime |  |
-| `deletedAt` | — |  |
+| `deletedAt` | ~datetime? |  |
 | `accountId` | cuid | Account |
 | `userIdCreatedBy` | cuid | User |
 
@@ -927,31 +927,31 @@ Tipos con `?` = nullable. `—` = tipo no observable en el bundle (ver enums y m
 
 | columna | tipo | relación |
 |---|---|---|
-| `id` | — |  |
-| `createdAt` | — |  |
-| `updatedAt` | — |  |
-| `orderId` | — | Order |
-| `accountId` | — | Account |
-| `productId` | — | Product |
-| `customPriceTypeId` | — | CustomPriceType |
-| `quantity` | — |  |
-| `quantityUnit` | — |  |
-| `unitPrice` | — |  |
-| `unitPriceCurrency` | — |  |
-| `unitCostNet` | — |  |
-| `unitCostNetCurrency` | — |  |
-| `total` | — |  |
-| `totalCurrency` | — |  |
-| `totalCostNet` | — |  |
-| `totalCostNetCurrency` | — |  |
-| `priceBreakpoint` | — |  |
-| `name` | — |  |
-| `type` | — |  |
+| `id` | ~string |  |
+| `createdAt` | ~datetime |  |
+| `updatedAt` | ~datetime |  |
+| `orderId` | ~string | Order |
+| `accountId` | ~string | Account |
+| `productId` | ~string | Product |
+| `customPriceTypeId` | ~string | CustomPriceType |
+| `quantity` | ~decimal |  |
+| `quantityUnit` | ~enum MEASURE_UNIT |  |
+| `unitPrice` | ~decimal |  |
+| `unitPriceCurrency` | ~enum Currency |  |
+| `unitCostNet` | ~decimal |  |
+| `unitCostNetCurrency` | ~enum Currency |  |
+| `total` | ~decimal |  |
+| `totalCurrency` | ~enum Currency |  |
+| `totalCostNet` | ~decimal |  |
+| `totalCostNetCurrency` | ~enum Currency |  |
+| `priceBreakpoint` | ~decimal |  |
+| `name` | ~string |  |
+| `type` | ~enum ProductType |  |
 | `inComboId` | — | OrderItemProduct |
 | `prescriptionId` | — | Prescription |
-| `priceType` | — |  |
-| `satCategoryCode` | — |  |
-| `discountId` | — |  |
+| `priceType` | ~enum OrderItemPriceType |  |
+| `satCategoryCode` | ~string? |  |
+| `discountId` | ~string? |  |
 | `digitalServiceItemId` | — |  |
 
 ### OrderDeliveryCost
@@ -962,9 +962,9 @@ Tipos con `?` = nullable. `—` = tipo no observable en el bundle (ver enums y m
 | `createdAt` | datetime |  |
 | `updatedAt` | datetime |  |
 | `accountId` | cuid | Account |
-| `orderId` | — | Order |
-| `amount` | — |  |
-| `amountCurrency` | — |  |
+| `orderId` | ~string | Order |
+| `amount` | ~decimal |  |
+| `amountCurrency` | ~enum Currency |  |
 
 ### OrderItemProductDiscount
 
@@ -1011,28 +1011,28 @@ Tipos con `?` = nullable. `—` = tipo no observable en el bundle (ver enums y m
 | `subtotalCurrency` | enum Currency |  |
 | `discounts` | decimal |  |
 | `discountsCurrency` | enum Currency |  |
-| `originalTotal` | — |  |
+| `originalTotal` | ~decimal |  |
 | `total` | decimal |  |
 | `totalCurrency` | enum Currency |  |
-| `madeAt` | — |  |
+| `madeAt` | ~datetime |  |
 | `createdAt` | datetime |  |
 | `updatedAt` | datetime |  |
-| `deletedAt` | — |  |
-| `locationId` | — | Location |
+| `deletedAt` | ~datetime? |  |
+| `locationId` | ~string | Location |
 | `invoiceId` | — | Invoice |
 | `clientId` | cuid? | Client |
 | `deliveryAddressId` | — | Address |
 | `customPriceTypeId` | string | CustomPriceType |
-| `orderSeriesId` | — | OrderSeries |
-| `isTest` | — |  |
-| `isOffline` | — |  |
-| `wayOfPayment` | — |  |
-| `shippingMethod` | — |  |
-| `quotationId` | — | Quotation |
-| `requestId` | — |  |
-| `withTaxes` | — |  |
-| `isSellingDigitalService` | — |  |
-| `loyaltyPointsRewardPercentage` | — |  |
+| `orderSeriesId` | ~string | OrderSeries |
+| `isTest` | ~boolean |  |
+| `isOffline` | ~boolean |  |
+| `wayOfPayment` | ~enum OrderWayOfPayment |  |
+| `shippingMethod` | ~enum OrderShippingMethod |  |
+| `quotationId` | ~string? | Quotation |
+| `requestId` | ~string |  |
+| `withTaxes` | ~boolean |  |
+| `isSellingDigitalService` | ~boolean |  |
+| `loyaltyPointsRewardPercentage` | ~decimal |  |
 | `notes` | string? |  |
 
 ### OrderSeries
@@ -1046,23 +1046,23 @@ Tipos con `?` = nullable. `—` = tipo no observable en el bundle (ver enums y m
 | `createdAt` | datetime |  |
 | `updatedAt` | datetime |  |
 | `name` | string |  |
-| `isDefault` | — |  |
+| `isDefault` | ~boolean |  |
 | `deletedAt` | — |  |
 
 ### OrderRefund
 
 | columna | tipo | relación |
 |---|---|---|
-| `id` | — |  |
-| `orderId` | — | Order |
-| `reason` | — |  |
-| `createdAt` | — |  |
-| `updatedAt` | — |  |
-| `totalRefunded` | — |  |
-| `subtotalRefunded` | — |  |
-| `cancelledDebt` | — |  |
-| `totalCurrency` | — |  |
-| `userIdCreatedBy` | — | User |
+| `id` | ~string |  |
+| `orderId` | ~string | Order |
+| `reason` | ~enum OrderRefundReason |  |
+| `createdAt` | ~datetime |  |
+| `updatedAt` | ~datetime |  |
+| `totalRefunded` | ~decimal |  |
+| `subtotalRefunded` | ~decimal |  |
+| `cancelledDebt` | ~decimal |  |
+| `totalCurrency` | ~enum Currency |  |
+| `userIdCreatedBy` | ~string | User |
 | `orderSnapshot` | — |  |
 | `invoiceId` | — | Invoice |
 
@@ -1079,9 +1079,9 @@ Tipos con `?` = nullable. `—` = tipo no observable en el bundle (ver enums y m
 | columna | tipo | relación |
 |---|---|---|
 | `id` | cuid |  |
-| `orderItemId` | — |  |
-| `orderRefundId` | — | OrderRefund |
-| `quantityRefunded` | — |  |
+| `orderItemId` | ~string |  |
+| `orderRefundId` | ~string | OrderRefund |
+| `quantityRefunded` | ~decimal |  |
 | `createdAt` | datetime |  |
 | `updatedAt` | datetime |  |
 
@@ -1090,10 +1090,10 @@ Tipos con `?` = nullable. `—` = tipo no observable en el bundle (ver enums y m
 | columna | tipo | relación |
 |---|---|---|
 | `id` | cuid |  |
-| `accountId` | — | Account |
-| `orderRefundId` | — | OrderRefund |
+| `accountId` | ~string | Account |
+| `orderRefundId` | ~string | OrderRefund |
 | `method` | enum PaymentMethod |  |
-| `totalRefunded` | — |  |
+| `totalRefunded` | ~decimal |  |
 | `totalCurrency` | enum Currency |  |
 | `cashierId` | cuid | Cashier |
 | `createdAt` | datetime |  |
@@ -1104,16 +1104,16 @@ Tipos con `?` = nullable. `—` = tipo no observable en el bundle (ver enums y m
 
 | columna | tipo | relación |
 |---|---|---|
-| `id` | — |  |
-| `createdAt` | — |  |
-| `updatedAt` | — |  |
-| `dueDate` | — |  |
-| `accountId` | — | Account |
-| `orderId` | — | Order |
-| `originalDebt` | — |  |
-| `currentDebt` | — |  |
-| `currency` | — |  |
-| `paymentIdCredit` | — | OrderPayment |
+| `id` | ~string |  |
+| `createdAt` | ~datetime |  |
+| `updatedAt` | ~datetime |  |
+| `dueDate` | ~datetime |  |
+| `accountId` | ~string | Account |
+| `orderId` | ~string | Order |
+| `originalDebt` | ~decimal |  |
+| `currentDebt` | ~decimal |  |
+| `currency` | ~string |  |
+| `paymentIdCredit` | ~string | OrderPayment |
 
 ### OrderJournal
 
@@ -1123,7 +1123,7 @@ Tipos con `?` = nullable. `—` = tipo no observable en el bundle (ver enums y m
 | `accountId` | cuid | Account |
 | `createdAt` | datetime |  |
 | `updatedAt` | datetime |  |
-| `orderId` | — | Order |
+| `orderId` | ~string | Order |
 | `events` | json |  |
 
 ### QuotationJournal
@@ -1134,7 +1134,7 @@ Tipos con `?` = nullable. `—` = tipo no observable en el bundle (ver enums y m
 | `accountId` | cuid | Account |
 | `createdAt` | datetime |  |
 | `updatedAt` | datetime |  |
-| `quotationId` | — | Quotation |
+| `quotationId` | ~string? | Quotation |
 | `events` | json |  |
 
 ### ClientDebtLimit
@@ -1149,66 +1149,66 @@ Tipos con `?` = nullable. `—` = tipo no observable en el bundle (ver enums y m
 
 | columna | tipo | relación |
 |---|---|---|
-| `id` | — |  |
-| `userFriendlyId` | — |  |
-| `createdAt` | — |  |
-| `updatedAt` | — |  |
+| `id` | ~string |  |
+| `userFriendlyId` | ~string |  |
+| `createdAt` | ~datetime |  |
+| `updatedAt` | ~datetime |  |
 | `deletedAt` | — |  |
-| `accountId` | — | Account |
-| `userIdCreatedBy` | — | User |
+| `accountId` | ~string? | Account |
+| `userIdCreatedBy` | ~string? | User |
 | `addressId` | — | Address |
-| `name` | — |  |
-| `surname` | — |  |
-| `phoneNumber` | — |  |
-| `email` | — |  |
-| `fiscalProfileId` | — | FiscalProfile |
-| `type` | — |  |
+| `name` | ~string |  |
+| `surname` | ~string |  |
+| `phoneNumber` | ~string |  |
+| `email` | ~string |  |
+| `fiscalProfileId` | ~string? | FiscalProfile |
+| `type` | ~enum ClientType |  |
 | `comments` | — |  |
 | `defaultPriceTypeId` | — | CustomPriceType |
-| `lastDebtReminderSentAt` | — |  |
-| `loyaltyPoints` | — |  |
-| `aiAgentEnabled` | — |  |
+| `lastDebtReminderSentAt` | ~datetime? |  |
+| `loyaltyPoints` | ~decimal |  |
+| `aiAgentEnabled` | ~boolean |  |
 
 ### Quotation
 
 | columna | tipo | relación |
 |---|---|---|
 | `id` | cuid |  |
-| `userFriendlyId` | — |  |
+| `userFriendlyId` | ~string |  |
 | `createdAt` | datetime |  |
 | `updatedAt` | datetime |  |
-| `deletedAt` | — |  |
+| `deletedAt` | ~datetime? |  |
 | `quotationNumber` | bigint |  |
 | `accountId` | cuid | Account |
 | `userIdCreatedBy` | cuid | User |
 | `validFrom` | datetime? |  |
 | `expiresAt` | datetime? |  |
-| `subtotal` | — |  |
+| `subtotal` | ~decimal |  |
 | `subtotalCurrency` | enum Currency |  |
 | `status` | enum QuotationStatus |  |
 | `clientId` | cuid? | Client |
 | `clientNote` | string |  |
-| `customPriceTypeId` | — | CustomPriceType |
+| `customPriceTypeId` | ~string? | CustomPriceType |
 | `locationId` | cuid? | Location |
 | `withTaxes` | boolean |  |
-| `notes` | — |  |
+| `notes` | ~string? |  |
 | `deliveryAddressId` | — | Address |
-| `sellerId` | — | Seller |
+| `sellerId` | ~string? | Seller |
 
 ### QuotationItem
 
 | columna | tipo | relación |
 |---|---|---|
-| `id` | — |  |
-| `createdAt` | — |  |
-| `updatedAt` | — |  |
-| `quotationId` | — | Quotation |
-| `productId` | — | Product |
+| `id` | ~string |  |
+| `createdAt` | ~datetime |  |
+| `updatedAt` | ~datetime |  |
+| `quotationId` | ~string | Quotation |
+| `productId` | ~string? | Product |
 | `quantity` | decimal |  |
-| `quantityUnit` | — |  |
+| `quantityUnit` | ~enum MEASURE_UNIT |  |
 | `sellPrice` | decimal |  |
 | `sellPriceCurrency` | enum Currency |  |
-| `customPriceTypeId` | — | CustomPriceType |
+| `customPriceTypeId` | ~string | CustomPriceType |
 | `priceBreakpoint` | decimal |  |
 | `total` | decimal |  |
 | `totalCurrency` | enum Currency |  |
@@ -1224,10 +1224,10 @@ Tipos con `?` = nullable. `—` = tipo no observable en el bundle (ver enums y m
 | `id` | cuid |  |
 | `createdAt` | datetime |  |
 | `updatedAt` | datetime |  |
-| `quotationItemId` | — | QuotationItem |
-| `name` | — |  |
-| `cost` | — |  |
-| `costCurrency` | — |  |
+| `quotationItemId` | ~string | QuotationItem |
+| `name` | ~string |  |
+| `cost` | ~decimal |  |
+| `costCurrency` | ~enum Currency |  |
 
 ### QuotationItemDiscount
 
@@ -1275,20 +1275,20 @@ Tipos con `?` = nullable. `—` = tipo no observable en el bundle (ver enums y m
 
 | columna | tipo | relación |
 |---|---|---|
-| `id` | — |  |
-| `createdAt` | — |  |
-| `updatedAt` | — |  |
+| `id` | ~string |  |
+| `createdAt` | ~datetime |  |
+| `updatedAt` | ~datetime |  |
 | `deletedAt` | — |  |
-| `accountId` | — | Account |
-| `name` | — |  |
-| `type` | — |  |
-| `application` | — |  |
-| `validFrom` | — |  |
-| `validUntil` | — |  |
-| `userIdCreatedBy` | — | User |
+| `accountId` | ~string | Account |
+| `name` | ~string |  |
+| `type` | ~enum PromotionType |  |
+| `application` | ~enum PromotionApplicationType |  |
+| `validFrom` | ~datetime |  |
+| `validUntil` | ~datetime |  |
+| `userIdCreatedBy` | ~string | User |
 | `lastUpdatedByUserId` | — | User |
-| `restrictToClients` | — |  |
-| `daysOfWeekLimitation` | — |  |
+| `restrictToClients` | ~string |  |
+| `daysOfWeekLimitation` | ~array/json |  |
 
 ### PromotionClientLimitation
 
@@ -1315,22 +1315,22 @@ Tipos con `?` = nullable. `—` = tipo no observable en el bundle (ver enums y m
 
 | columna | tipo | relación |
 |---|---|---|
-| `id` | — |  |
-| `accountId` | — | Account |
-| `promotionId` | — | Promotion |
-| `amount` | — |  |
-| `amountType` | — |  |
+| `id` | ~string |  |
+| `accountId` | ~string | Account |
+| `promotionId` | ~string | Promotion |
+| `amount` | ~decimal |  |
+| `amountType` | ~enum ItemDiscountType |  |
 | `minCartSubtotal` | — |  |
 
 ### SingleTargetPromotion
 
 | columna | tipo | relación |
 |---|---|---|
-| `id` | — |  |
-| `accountId` | — | Account |
-| `promotionId` | — | Promotion |
-| `amount` | — |  |
-| `amountType` | — |  |
+| `id` | ~string |  |
+| `accountId` | ~string | Account |
+| `promotionId` | ~string | Promotion |
+| `amount` | ~decimal |  |
+| `amountType` | ~enum ItemDiscountType |  |
 | `target` | — |  |
 
 ### MultiTargetPromotion
@@ -1356,8 +1356,8 @@ Tipos con `?` = nullable. `—` = tipo no observable en el bundle (ver enums y m
 | `updatedAt` | datetime |  |
 | `deactivatedAt` | — |  |
 | `accountId` | cuid | Account |
-| `rewardPercentage` | — |  |
-| `minCartTotalLimitation` | — |  |
+| `rewardPercentage` | ~decimal |  |
+| `minCartTotalLimitation` | ~decimal? |  |
 
 ### LoyaltyProgramPriceListLimitation
 
@@ -1379,33 +1379,33 @@ Tipos con `?` = nullable. `—` = tipo no observable en el bundle (ver enums y m
 
 | columna | tipo | relación |
 |---|---|---|
-| `accountId` | — | Account |
-| `loyaltyProgramId` | — | LoyaltyProgram |
-| `productProfileId` | — | ProductProfile |
-| `rewardPercentage` | — |  |
+| `accountId` | ~string | Account |
+| `loyaltyProgramId` | ~string | LoyaltyProgram |
+| `productProfileId` | ~string | ProductProfile |
+| `rewardPercentage` | ~decimal |  |
 
 ### LoyaltyProgramCategorySpecificReward
 
 | columna | tipo | relación |
 |---|---|---|
-| `accountId` | — | Account |
-| `loyaltyProgramId` | — | LoyaltyProgram |
-| `categoryId` | — |  |
-| `rewardPercentage` | — |  |
+| `accountId` | ~string | Account |
+| `loyaltyProgramId` | ~string | LoyaltyProgram |
+| `categoryId` | ~string |  |
+| `rewardPercentage` | ~decimal |  |
 
 ### LoyaltyProgramMovement
 
 | columna | tipo | relación |
 |---|---|---|
-| `id` | — |  |
-| `createdAt` | — |  |
-| `accountId` | — | Account |
-| `userIdCreatedBy` | — | User |
-| `clientId` | — | Client |
-| `previousQuantity` | — |  |
-| `currentQuantity` | — |  |
-| `origin` | — |  |
-| `orderId` | — | Order |
+| `id` | ~string |  |
+| `createdAt` | ~datetime |  |
+| `accountId` | ~string | Account |
+| `userIdCreatedBy` | ~string | User |
+| `clientId` | ~string | Client |
+| `previousQuantity` | ~decimal |  |
+| `currentQuantity` | ~decimal |  |
+| `origin` | ~string |  |
+| `orderId` | ~string | Order |
 | `adjustmentReason` | — |  |
 
 
@@ -1423,7 +1423,7 @@ Tipos con `?` = nullable. `—` = tipo no observable en el bundle (ver enums y m
 | `accountId` | cuid | Account |
 | `userIdCreatedBy` | cuid | User |
 | `madeAt` | datetime |  |
-| `total` | — |  |
+| `total` | ~decimal |  |
 | `totalCurrency` | enum Currency |  |
 | `status` | enum PurchaseStatus |  |
 | `providerId` | cuid? | Provider |
@@ -1440,9 +1440,9 @@ Tipos con `?` = nullable. `—` = tipo no observable en el bundle (ver enums y m
 | `createdAt` | datetime |  |
 | `updatedAt` | datetime |  |
 | `accountId` | cuid | Account |
-| `dueDate` | — |  |
+| `dueDate` | ~datetime |  |
 | `purchaseId` | cuid | Purchase |
-| `originalDebt` | — |  |
+| `originalDebt` | ~decimal |  |
 | `currentDebt` | decimal |  |
 | `currency` | enum Currency |  |
 
@@ -1453,7 +1453,7 @@ Tipos con `?` = nullable. `—` = tipo no observable en el bundle (ver enums y m
 | `id` | cuid |  |
 | `createdAt` | datetime |  |
 | `updatedAt` | datetime |  |
-| `accountId` | — | Account |
+| `accountId` | ~string | Account |
 | `purchaseId` | cuid | Purchase |
 | `madeAt` | datetime |  |
 | `total` | decimal |  |
@@ -1470,21 +1470,21 @@ Tipos con `?` = nullable. `—` = tipo no observable en el bundle (ver enums y m
 | `code` | string |  |
 | `expiresAt` | datetime |  |
 | `fabricatedAt` | datetime? |  |
-| `stockQuantity` | — |  |
-| `purchaseItemId` | — | PurchaseItem |
+| `stockQuantity` | ~decimal |  |
+| `purchaseItemId` | ~string | PurchaseItem |
 | `productBatchId` | cuid | ProductBatch |
 
 ### PurchaseItem
 
 | columna | tipo | relación |
 |---|---|---|
-| `id` | — |  |
-| `createdAt` | — |  |
-| `updatedAt` | — |  |
-| `purchaseId` | — | Purchase |
-| `productId` | — | Product |
+| `id` | ~string |  |
+| `createdAt` | ~datetime |  |
+| `updatedAt` | ~datetime |  |
+| `purchaseId` | ~string | Purchase |
+| `productId` | ~string | Product |
 | `quantity` | decimal |  |
-| `quantityUnit` | — |  |
+| `quantityUnit` | ~enum MEASURE_UNIT |  |
 | `sellUnitFactor` | decimal |  |
 | `netUnitCost` | decimal |  |
 | `costCurrency` | enum Currency |  |
@@ -1498,12 +1498,12 @@ Tipos con `?` = nullable. `—` = tipo no observable en el bundle (ver enums y m
 | `id` | cuid |  |
 | `createdAt` | datetime |  |
 | `updatedAt` | datetime |  |
-| `concept` | — |  |
-| `expenseNumber` | — |  |
+| `concept` | ~string? |  |
+| `expenseNumber` | ~bigint |  |
 | `accountId` | cuid | Account |
 | `userIdCreatedBy` | cuid | User |
 | `madeAt` | datetime |  |
-| `total` | — |  |
+| `total` | ~decimal |  |
 | `totalCurrency` | enum Currency |  |
 | `locationId` | cuid | Location |
 | `providerId` | cuid? | Provider |
@@ -1518,13 +1518,13 @@ Tipos con `?` = nullable. `—` = tipo no observable en el bundle (ver enums y m
 | `id` | cuid |  |
 | `createdAt` | datetime |  |
 | `updatedAt` | datetime |  |
-| `accountId` | — | Account |
-| `expenseId` | — | Expense |
+| `accountId` | ~string | Account |
+| `expenseId` | ~string | Expense |
 | `userIdCreatedBy` | cuid | User |
 | `madeAt` | datetime |  |
-| `total` | — |  |
+| `total` | ~decimal |  |
 | `totalCurrency` | enum Currency |  |
-| `cashMovementId` | — | CashMovement |
+| `cashMovementId` | ~string? | CashMovement |
 | `method` | enum PaymentMethod |  |
 | `customPaymentMethodId` | cuid? | CustomPaymentMethod |
 
@@ -1536,10 +1536,10 @@ Tipos con `?` = nullable. `—` = tipo no observable en el bundle (ver enums y m
 | `createdAt` | datetime |  |
 | `updatedAt` | datetime |  |
 | `accountId` | cuid | Account |
-| `dueDate` | — |  |
-| `currentDebt` | — |  |
-| `originalDebt` | — |  |
-| `currency` | — |  |
+| `dueDate` | ~datetime |  |
+| `currentDebt` | ~decimal |  |
+| `originalDebt` | ~decimal |  |
+| `currency` | ~string |  |
 | `expenseId` | — | Expense |
 
 ### Provider
@@ -1581,31 +1581,31 @@ Tipos con `?` = nullable. `—` = tipo no observable en el bundle (ver enums y m
 | `id` | cuid |  |
 | `createdAt` | datetime |  |
 | `updatedAt` | datetime |  |
-| `deletedAt` | — |  |
+| `deletedAt` | ~datetime? |  |
 | `accountId` | cuid | Account |
 | `name` | string |  |
-| `isDefault` | — |  |
-| `locationId` | — | Location |
-| `orderSeriesId` | — | OrderSeries |
+| `isDefault` | ~boolean |  |
+| `locationId` | ~string? | Location |
+| `orderSeriesId` | ~string? | OrderSeries |
 
 ### CashierAudit
 
 | columna | tipo | relación |
 |---|---|---|
 | `id` | cuid |  |
-| `createdAt` | — |  |
-| `updatedAt` | — |  |
+| `createdAt` | ~datetime |  |
+| `updatedAt` | ~datetime |  |
 | `deletedAt` | — |  |
-| `accountId` | — | Account |
-| `userIdCreatedBy` | — | User |
+| `accountId` | ~string | Account |
+| `userIdCreatedBy` | ~string | User |
 | `cashIn` | decimal |  |
 | `cashInCurrency` | enum Currency |  |
 | `cashOut` | decimal |  |
 | `cashOutCurrency` | enum Currency |  |
 | `comments` | string? |  |
-| `status` | — |  |
-| `periodStart` | — |  |
-| `periodEnd` | — |  |
+| `status` | ~enum PurchaseStatus |  |
+| `periodStart` | ~datetime |  |
+| `periodEnd` | ~datetime |  |
 | `cashierId` | cuid | Cashier |
 
 ### CashierAuditItem
@@ -1613,12 +1613,12 @@ Tipos con `?` = nullable. `—` = tipo no observable en el bundle (ver enums y m
 | columna | tipo | relación |
 |---|---|---|
 | `id` | cuid |  |
-| `createdAt` | — |  |
-| `updatedAt` | — |  |
-| `cashierAuditId` | — | CashierAudit |
+| `createdAt` | ~datetime |  |
+| `updatedAt` | ~datetime |  |
+| `cashierAuditId` | ~string | CashierAudit |
 | `method` | enum PaymentMethod |  |
-| `totalExpected` | — |  |
-| `totalExpectedCurrency` | — |  |
+| `totalExpected` | ~decimal |  |
+| `totalExpectedCurrency` | ~enum Currency |  |
 | `totalAudited` | decimal |  |
 | `totalAuditedCurrency` | enum Currency |  |
 | `customPaymentMethodId` | cuid? | CustomPaymentMethod |
@@ -1627,16 +1627,16 @@ Tipos con `?` = nullable. `—` = tipo no observable en el bundle (ver enums y m
 
 | columna | tipo | relación |
 |---|---|---|
-| `id` | — |  |
-| `createdAt` | — |  |
+| `id` | ~string |  |
+| `createdAt` | ~datetime |  |
 | `deletedAt` | — |  |
-| `accountId` | — | Account |
-| `userId` | — | User |
-| `details` | — |  |
-| `amount` | — |  |
-| `currency` | — |  |
-| `cashierId` | — | Cashier |
-| `type` | — |  |
+| `accountId` | ~string | Account |
+| `userId` | ~string | User |
+| `details` | ~string? |  |
+| `amount` | ~decimal |  |
+| `currency` | ~string |  |
+| `cashierId` | ~string | Cashier |
+| `type` | ~enum CashMovementType |  |
 
 
 ## Facturación (fuera de alcance por ahora)
@@ -1645,14 +1645,14 @@ Tipos con `?` = nullable. `—` = tipo no observable en el bundle (ver enums y m
 
 | columna | tipo | relación |
 |---|---|---|
-| `id` | — |  |
-| `createdAt` | — |  |
-| `updatedAt` | — |  |
-| `fiscalName` | — |  |
-| `addressId` | — | Address |
+| `id` | ~string |  |
+| `createdAt` | ~datetime |  |
+| `updatedAt` | ~datetime |  |
+| `fiscalName` | ~string |  |
+| `addressId` | ~string | Address |
 | `issuingAddressId` | — | Address |
-| `fiscalRegimeId` | — | FiscalRegime |
-| `fiscalCode` | — |  |
+| `fiscalRegimeId` | ~string | FiscalRegime |
+| `fiscalCode` | ~string |  |
 
 ### SelfInvoiceProfile
 
@@ -1661,7 +1661,7 @@ Tipos con `?` = nullable. `—` = tipo no observable en el bundle (ver enums y m
 | `id` | cuid |  |
 | `createdAt` | datetime |  |
 | `updatedAt` | datetime |  |
-| `fiscalProfileId` | — | FiscalProfile |
+| `fiscalProfileId` | ~string? | FiscalProfile |
 | `fiscalUseCaseId` | — | FiscalUseCase |
 
 ### FiscalRegime
@@ -1671,8 +1671,8 @@ Tipos con `?` = nullable. `—` = tipo no observable en el bundle (ver enums y m
 | `id` | cuid |  |
 | `createdAt` | datetime |  |
 | `updatedAt` | datetime |  |
-| `country` | — |  |
-| `code` | — |  |
+| `country` | ~enum Country? |  |
+| `code` | ~string |  |
 
 ### FiscalUseCase
 
@@ -1681,8 +1681,8 @@ Tipos con `?` = nullable. `—` = tipo no observable en el bundle (ver enums y m
 | `id` | cuid |  |
 | `createdAt` | datetime |  |
 | `updatedAt` | datetime |  |
-| `country` | — |  |
-| `code` | — |  |
+| `country` | ~enum Country? |  |
+| `code` | ~string |  |
 
 ### Invoice
 
@@ -1765,70 +1765,70 @@ Tipos con `?` = nullable. `—` = tipo no observable en el bundle (ver enums y m
 | `createdAt` | datetime |  |
 | `updatedAt` | datetime |  |
 | `deactivatedAt` | — |  |
-| `subdomain` | — |  |
+| `subdomain` | ~string |  |
 | `accountId` | cuid | Account |
 
 ### CatalogConfiguration
 
 | columna | tipo | relación |
 |---|---|---|
-| `id` | — |  |
-| `createdAt` | — |  |
-| `updatedAt` | — |  |
-| `catalogId` | — | Catalog |
-| `name` | — |  |
-| `phoneNumber` | — |  |
+| `id` | ~string |  |
+| `createdAt` | ~datetime |  |
+| `updatedAt` | ~datetime |  |
+| `catalogId` | ~string | Catalog |
+| `name` | ~string |  |
+| `phoneNumber` | ~string |  |
 | `facebook` | — |  |
 | `instagram` | — |  |
 | `customerSupportWhatsApp` | — |  |
 | `emailContact` | — |  |
-| `configProductsWithoutStock` | — |  |
-| `configAcquisitionLimit` | — |  |
-| `configCategories` | — |  |
-| `locationOfOriginId` | — |  |
-| `sharedInInstagram` | — |  |
-| `sharedInWhatsApp` | — |  |
-| `uiVariant` | — |  |
-| `areClientCatalogsEnabled` | — |  |
-| `isVolumePricingEnabled` | — |  |
+| `configProductsWithoutStock` | ~enum CatalogConfigProductsWithoutStock |  |
+| `configAcquisitionLimit` | ~enum CatalogConfigAcquisitionLimit |  |
+| `configCategories` | ~enum CatalogConfigCategories |  |
+| `locationOfOriginId` | ~string |  |
+| `sharedInInstagram` | ~boolean |  |
+| `sharedInWhatsApp` | ~boolean |  |
+| `uiVariant` | ~enum CatalogUIVariant |  |
+| `areClientCatalogsEnabled` | ~boolean |  |
+| `isVolumePricingEnabled` | ~boolean |  |
 
 ### LocationStockVisibilityToCatalog
 
 | columna | tipo | relación |
 |---|---|---|
-| `id` | — |  |
-| `createdAt` | — |  |
-| `catalogConfigurationId` | — | CatalogConfiguration |
-| `locationId` | — | Location |
+| `id` | ~string |  |
+| `createdAt` | ~datetime |  |
+| `catalogConfigurationId` | ~string | CatalogConfiguration |
+| `locationId` | ~string? | Location |
 
 ### CatalogOrderShippingConfiguration
 
 | columna | tipo | relación |
 |---|---|---|
-| `id` | — |  |
+| `id` | ~string |  |
 | `shippingMethods` | enum OrderShippingMethod |  |
-| `createdAt` | — |  |
-| `updatedAt` | — |  |
+| `createdAt` | ~datetime |  |
+| `updatedAt` | ~datetime |  |
 | `pickUpAddressId` | — | Address |
 | `pickUpInstructions` | string |  |
 | `deliveryInstructions` | string |  |
 | `deliveryDefaultPrice` | decimal |  |
 | `agreedAfterPurchaseInstructions` | string |  |
-| `catalogConfigurationId` | — | CatalogConfiguration |
+| `catalogConfigurationId` | ~string | CatalogConfiguration |
 
 ### CatalogOrderPaymentConfiguration
 
 | columna | tipo | relación |
 |---|---|---|
-| `id` | — |  |
+| `id` | ~string |  |
 | `wayOfPayments` | enum OrderWayOfPayment |  |
-| `createdAt` | — |  |
-| `updatedAt` | — |  |
+| `createdAt` | ~datetime |  |
+| `updatedAt` | ~datetime |  |
 | `bankTransferInstructions` | string |  |
 | `agreedAfterPurchaseInstructions` | string |  |
 | `creditInstructions` | string |  |
 | `collectOnDeliveryInstructions` | string |  |
-| `catalogConfigurationId` | — | CatalogConfiguration |
+| `catalogConfigurationId` | ~string | CatalogConfiguration |
 
 ### MercadoPagoCredentials
 
@@ -1848,25 +1848,25 @@ Tipos con `?` = nullable. `—` = tipo no observable en el bundle (ver enums y m
 
 | columna | tipo | relación |
 |---|---|---|
-| `id` | — |  |
-| `catalogId` | — | Catalog |
+| `id` | ~string |  |
+| `catalogId` | ~string | Catalog |
 | `isActive` | boolean |  |
 | `heroPhotoId` | — |  |
 | `showHeroPhoto` | boolean |  |
 | `title` | string? |  |
 | `mainButtonText` | string? |  |
-| `createdAt` | — |  |
-| `updatedAt` | — |  |
+| `createdAt` | ~datetime |  |
+| `updatedAt` | ~datetime |  |
 
 ### CatalogPhoto
 
 | columna | tipo | relación |
 |---|---|---|
 | `id` | cuid |  |
-| `imageId` | — | Image |
+| `imageId` | ~string? | Image |
 | `accountId` | cuid | Account |
-| `catalogId` | — | Catalog |
-| `type` | — |  |
+| `catalogId` | ~string | Catalog |
+| `type` | ~string |  |
 | `createdAt` | datetime |  |
 | `updatedAt` | datetime |  |
 
@@ -1875,10 +1875,10 @@ Tipos con `?` = nullable. `—` = tipo no observable en el bundle (ver enums y m
 | columna | tipo | relación |
 |---|---|---|
 | `id` | cuid |  |
-| `imageId` | — | Image |
+| `imageId` | ~string? | Image |
 | `accountId` | cuid | Account |
-| `catalogId` | — | Catalog |
-| `type` | — |  |
+| `catalogId` | ~string | Catalog |
+| `type` | ~string |  |
 | `createdAt` | datetime |  |
 | `updatedAt` | datetime |  |
 
@@ -1889,63 +1889,63 @@ Tipos con `?` = nullable. `—` = tipo no observable en el bundle (ver enums y m
 | `id` | cuid |  |
 | `createdAt` | datetime |  |
 | `updatedAt` | datetime |  |
-| `path` | — |  |
-| `hidden` | — |  |
+| `path` | ~string |  |
+| `hidden` | ~boolean |  |
 | `accountId` | cuid | Account |
-| `customPriceTypeId` | — | CustomPriceType |
+| `customPriceTypeId` | ~string? | CustomPriceType |
 
 ### StoreAgentConfiguration
 
 | columna | tipo | relación |
 |---|---|---|
-| `id` | — |  |
-| `createdAt` | — |  |
-| `updatedAt` | — |  |
+| `id` | ~string |  |
+| `createdAt` | ~datetime |  |
+| `updatedAt` | ~datetime |  |
 | `disabledAt` | — |  |
-| `accountId` | — | Account |
-| `testMessagesSentCount` | — |  |
-| `supportCallOfferedCount` | — |  |
+| `accountId` | ~string | Account |
+| `testMessagesSentCount` | ~number |  |
+| `supportCallOfferedCount` | ~number |  |
 | `agentName` | — |  |
 | `agentDescription` | — |  |
-| `disclosesAiIdentity` | — |  |
-| `responseLength` | — |  |
-| `useEmojisInResponses` | — |  |
-| `defaultAccessCustomPriceTypeId` | — | CustomPriceType |
-| `outOfStockPolicy` | — |  |
+| `disclosesAiIdentity` | ~boolean |  |
+| `responseLength` | ~enum StoreAgentResponseLength |  |
+| `useEmojisInResponses` | ~boolean |  |
+| `defaultAccessCustomPriceTypeId` | ~string | CustomPriceType |
+| `outOfStockPolicy` | ~enum StoreAgentOutOfStockPolicy |  |
 
 ### StoreAgentAccessToLocation
 
 | columna | tipo | relación |
 |---|---|---|
-| `id` | — |  |
-| `createdAt` | — |  |
+| `id` | ~string |  |
+| `createdAt` | ~datetime |  |
 | `agentId` | — |  |
-| `locationId` | — | Location |
+| `locationId` | ~string? | Location |
 
 ### StoreAgentFAQ
 
 | columna | tipo | relación |
 |---|---|---|
-| `id` | — |  |
-| `createdAt` | — |  |
-| `updatedAt` | — |  |
+| `id` | ~string |  |
+| `createdAt` | ~datetime |  |
+| `updatedAt` | ~datetime |  |
 | `storeAgentConfigurationId` | — | StoreAgentConfiguration |
-| `userIdCreatedBy` | — | User |
-| `category` | — |  |
+| `userIdCreatedBy` | ~string | User |
+| `category` | ~json? |  |
 | `title` | — |  |
-| `description` | — |  |
+| `description` | ~string? |  |
 
 ### StoreAgentDelegationPolicy
 
 | columna | tipo | relación |
 |---|---|---|
-| `id` | — |  |
-| `createdAt` | — |  |
-| `updatedAt` | — |  |
+| `id` | ~string |  |
+| `createdAt` | ~datetime |  |
+| `updatedAt` | ~datetime |  |
 | `storeAgentConfigurationId` | — | StoreAgentConfiguration |
-| `userIdCreatedBy` | — | User |
+| `userIdCreatedBy` | ~string | User |
 | `title` | — |  |
-| `description` | — |  |
+| `description` | ~string? |  |
 | `deactivatedAt` | — |  |
 
 ### AiConversation
@@ -1956,7 +1956,7 @@ Tipos con `?` = nullable. `—` = tipo no observable en el bundle (ver enums y m
 | `createdAt` | datetime |  |
 | `updatedAt` | datetime |  |
 | `accountId` | cuid | Account |
-| `userId` | — | User |
+| `userId` | ~string? | User |
 | `context` | — |  |
 | `messages` | — |  |
 
@@ -2032,17 +2032,17 @@ Tipos con `?` = nullable. `—` = tipo no observable en el bundle (ver enums y m
 
 | columna | tipo | relación |
 |---|---|---|
-| `id` | — |  |
-| `createdAt` | — |  |
-| `updatedAt` | — |  |
-| `accountId` | — | Account |
-| `hasMadeFirstBalanceDeposit` | — |  |
+| `id` | ~string |  |
+| `createdAt` | ~datetime |  |
+| `updatedAt` | ~datetime |  |
+| `accountId` | ~string | Account |
+| `hasMadeFirstBalanceDeposit` | ~boolean |  |
 | `gestoPagosCredentialsId` | — | GestoPagosCredentials |
-| `commissionCurrency` | — |  |
-| `rechargesCommission` | — |  |
-| `servicePaymentsCommission` | — |  |
-| `giftCardsCommission` | — |  |
-| `isEnabled` | — |  |
+| `commissionCurrency` | ~enum Currency |  |
+| `rechargesCommission` | ~decimal |  |
+| `servicePaymentsCommission` | ~decimal |  |
+| `giftCardsCommission` | ~decimal |  |
+| `isEnabled` | ~boolean |  |
 
 ### ExternalDigitalServicePaymentNotification
 
@@ -2129,51 +2129,51 @@ Tipos con `?` = nullable. `—` = tipo no observable en el bundle (ver enums y m
 | `accountId` | cuid | Account |
 | `whatsAppBusinessId` | — |  |
 | `whatsAppBusinessPhoneNumberId` | — |  |
-| `displayPhoneNumber` | — |  |
+| `displayPhoneNumber` | ~string |  |
 | `accessToken` | — |  |
-| `displayName` | — |  |
+| `displayName` | ~string |  |
 
 ### PlatformConversation
 
 | columna | tipo | relación |
 |---|---|---|
-| `id` | — |  |
-| `createdAt` | — |  |
-| `updatedAt` | — |  |
+| `id` | ~string |  |
+| `createdAt` | ~datetime |  |
+| `updatedAt` | ~datetime |  |
 | `deletedAt` | — |  |
-| `accountId` | — | Account |
+| `accountId` | ~string | Account |
 | `clientId` | — | Client |
-| `displayPhoneNumber` | — |  |
-| `displayName` | — |  |
-| `lastMessageAt` | — |  |
-| `lastInboundMessageAt` | — |  |
-| `isAssignedToAI` | — |  |
+| `displayPhoneNumber` | ~string |  |
+| `displayName` | ~string |  |
+| `lastMessageAt` | ~datetime |  |
+| `lastInboundMessageAt` | ~datetime |  |
+| `isAssignedToAI` | ~boolean |  |
 | `markedUnreadAt` | — |  |
-| `isTest` | — |  |
-| `source` | — |  |
-| `externalUserId` | — | User |
+| `isTest` | ~boolean |  |
+| `source` | ~enum PlatformSource |  |
+| `externalUserId` | ~string | User |
 
 ### PlatformMessage
 
 | columna | tipo | relación |
 |---|---|---|
-| `id` | — |  |
-| `createdAt` | — |  |
-| `updatedAt` | — |  |
-| `direction` | — |  |
-| `messageType` | — |  |
-| `status` | — |  |
-| `text` | — |  |
+| `id` | ~string |  |
+| `createdAt` | ~datetime |  |
+| `updatedAt` | ~datetime |  |
+| `direction` | ~enum PlatformMessageDirection |  |
+| `messageType` | ~enum PlatformMessageType |  |
+| `status` | ~enum PlatformMessageStatus |  |
+| `text` | ~string |  |
 | `humanDelegationSummary` | — |  |
 | `reasoning` | — |  |
-| `origin` | — |  |
-| `platformTimestamp` | — |  |
-| `externalMessageId` | — |  |
-| `conversationId` | — |  |
+| `origin` | ~string |  |
+| `platformTimestamp` | ~datetime |  |
+| `externalMessageId` | ~string |  |
+| `conversationId` | ~string |  |
 | `createdById` | — |  |
 | `imageId` | — | Image |
 | `audioId` | — |  |
-| `accountId` | — | Account |
+| `accountId` | ~string | Account |
 | `fileId` | — | File |
 | `metadata` | — |  |
 
@@ -2199,7 +2199,7 @@ Tipos con `?` = nullable. `—` = tipo no observable en el bundle (ver enums y m
 | `id` | cuid |  |
 | `createdAt` | datetime |  |
 | `updatedAt` | datetime |  |
-| `conversationId` | — |  |
+| `conversationId` | ~string |  |
 | `accountId` | cuid | Account |
 | `openingMessageId` | — |  |
 | `isFree` | — |  |
@@ -2215,7 +2215,7 @@ Tipos con `?` = nullable. `—` = tipo no observable en el bundle (ver enums y m
 | `id` | cuid |  |
 | `createdAt` | datetime |  |
 | `updatedAt` | datetime |  |
-| `deletedAt` | — |  |
+| `deletedAt` | ~datetime? |  |
 | `year` | — |  |
 | `month` | — |  |
 | `accountId` | cuid | Account |
@@ -2225,15 +2225,15 @@ Tipos con `?` = nullable. `—` = tipo no observable en el bundle (ver enums y m
 
 | columna | tipo | relación |
 |---|---|---|
-| `id` | — |  |
-| `createdAt` | — |  |
-| `updatedAt` | — |  |
-| `madeAt` | — |  |
-| `accountId` | — | Account |
+| `id` | ~string |  |
+| `createdAt` | ~datetime |  |
+| `updatedAt` | ~datetime |  |
+| `madeAt` | ~datetime |  |
+| `accountId` | ~string | Account |
 | `amount` | — |  |
 | `description` | — |  |
-| `type` | — |  |
-| `status` | — |  |
+| `type` | ~string |  |
+| `status` | ~string |  |
 | `reconciliationId` | — | Reconciliation |
 | `comment` | — |  |
 
