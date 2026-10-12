@@ -51,3 +51,17 @@ Body: `{ request_id, status?, location, provider?, made_at?, folio?, notes?, due
 - Cantidades en la unidad de venta del producto (`sell_unit_factor = 1`).
 - Entradas (compra, recepción de traspaso, producción) nunca fallan por existencia.
 - Los ajustes no tienen `request_id`: el cliente debe evitar reenvíos.
+
+# Caja
+Rutas en `pb_hooks/cashier.pb.js`. Los pagos en efectivo de ventas, abonos, reembolsos, compras y gastos ya dejan su rastro; el corte solo los suma.
+
+| Ruta | Permiso | Qué hace |
+|---|---|---|
+| `POST /api/tpv/cash-movements` `{cashier, type: in\|out, amount, details?}` | `cashier_audit.create` | Entrada o retiro manual (`out` se guarda negativo) |
+| `DELETE /api/tpv/cash-movements/{id}` | `cashier_audit.create` | Solo manuales y del periodo abierto (después del último corte) |
+| `GET /api/tpv/cashiers/{id}/current` | `cashier_audit.read_current` (o `read`/`create`) | Esperado del periodo vigente, sin guardar |
+| `POST /api/tpv/cashier-audits` `{cashier}` | `cashier_audit.create` | **prepare**: crea (o reusa) el borrador; periodo = último corte → ahora (el primero parte de 1970) |
+| `POST /api/tpv/cashier-audits/{id}/finish` `{comments?, items:[{method, custom_payment_method?, total_audited}]}` | `cashier_audit.create` | **finish**: recalcula el esperado, exige el contado de cada método y cierra |
+
+Esperado por método = `order_payment` (ventas, neto de cambio) + `debt_payment` (abonos y pagos que liquidan un crédito) + `refund` (negativo, solo si el reembolso trae `cashier`) + `outlay_payment` (compras/gastos, negativo) + `movements_in_total` + `cash_withdrawal` (negativo). Los tres últimos solo aplican a efectivo. El crédito no entra. `cash_in`/`cash_out` del corte resumen entradas y salidas de efectivo; `cashier_audit_items.cash_in` no se usa.
+Diferencia = `total_audited − total_expected`. Supuesto mío: el esperado se recalcula al cerrar, así que lo ocurrido entre prepare y finish también cuenta.

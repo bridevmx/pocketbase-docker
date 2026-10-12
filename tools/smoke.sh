@@ -22,4 +22,5 @@ run() { # run <script> <puerto>
 run smoke-test.mjs 8099
 run smoke-sales.mjs 8100
 run smoke-inventory.mjs 8101
+run smoke-cashier.mjs 8102
 exit $FAILED
