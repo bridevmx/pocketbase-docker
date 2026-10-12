@@ -7,6 +7,7 @@ migrate((app) => {
   s.rateLimits.rules = [
     { label: '*:auth', audience: '', duration: 60, maxRequests: 60 },        // intentos de login
     { label: '/api/tpv/signup', audience: '', duration: 3600, maxRequests: 20 }, // altas de negocio
+    { label: 'POST /api/shop/orders', audience: '', duration: 3600, maxRequests: 30 }, // pedidos de la tienda pública (por IP)
     { label: '/api/', audience: '', duration: 60, maxRequests: 1200 },        // resto de la API
   ];
   app.save(s);
