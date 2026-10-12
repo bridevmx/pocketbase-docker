@@ -24,6 +24,7 @@ routerAdd('POST', '/api/tpv/setup', (e) => {
     business.set('currency', 'mxn');
     business.set('business_type', body.business_type || 'other');
     business.set('type_of_sale', body.type_of_sale || 'retail');
+    business.set('utc_offset_minutes', Math.max(-840, Math.min(840, parseInt(body.utc_offset_minutes) || 0)));
     tx.save(business);
 
     // licencia: la crea el panel de control antes; si no existe, arranca en prueba

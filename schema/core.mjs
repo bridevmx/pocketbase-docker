@@ -16,6 +16,7 @@ export default [
       sel('currency', ['mxn'], { required: true }),
       text('phone', { max: 30 }),
       email('email'),
+      num('utc_offset_minutes', { min: -840, max: 840, onlyInt: true }),   // zona horaria del negocio (México centro = -360); días de promociones y reportes
       photos('logo', 1),
       rel('owner', 'users'),
     ],

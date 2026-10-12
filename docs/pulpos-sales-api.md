@@ -112,3 +112,27 @@ Vigencia: `expires_at` o `quotation_default_validity_days`; `client_note` por de
 
 **Convertir**: `{ request_id, cashier, payments, … }` arma la venta con los productos, cantidades, cliente, vendedor, lista y descuentos de la cotización, y la crea con las reglas normales (la cotización pasa a `sold`). Los precios se recalculan con la lista vigente (los personalizados se conservan). Errores: `manual_items_not_sellable` (las partidas manuales no se venden), `quotation_expired`, `quotation_already_sold`.
 Supuestos míos: no hay aviso de existencias insuficientes al cotizar; los combos se guardan como una sola partida (sin `combo_parent`); la cotización vencida no se puede convertir.
+
+# Impuestos y promociones
+
+## Impuestos (precio con impuestos incluidos)
+Los precios de venta **incluyen** impuestos (convención del comercio en México). Cada partida guarda en `order_item_taxes` el desglose del total de la partida **ya con descuentos** (el descuento de carrito se prorratea): `amount` es el impuesto contenido.
+- Base gravable `b = total / ((1 + IEPS) × (1 + IVA))`; IEPS = `b × i`; IVA = `(b + IEPS) × v`. Exento y retenido no entran en la base; las retenciones se guardan como `is_withheld` con `amount = b × %` (informativas: no cambian el total).
+- `with_taxes = false` (venta sin desglose): se guardan las filas con `amount = 0` y el total es el mismo. **Supuesto mío**: en Pulpos no pude verificar si `withTaxes` cambia el total; aquí solo decide si se desglosa.
+- Cotizaciones: mismo desglose en `quotation_item_taxes.amount`.
+- Reporte: `GET /api/tpv/analytics/taxes?from&to` (`report.view_finance_reports`): por impuesto/tasa, ventas gravadas, impuesto, devuelto por reembolsos (proporcional a lo reembolsado) y neto; `totals.collected` (trasladado) y `totals.withheld`.
+- Zona horaria: `business.utc_offset_minutes` (alta: `utc_offset_minutes` en `POST /api/tpv/setup`; México centro = -360). La usan los días de las promociones y es el `tz_offset` por defecto de la analítica.
+
+## Promociones
+Se crean con la API de colecciones (`promotions` + `promotion_targets`, `promotion_clients`, `promotion_days`; permiso `promotion.admin`). El servidor las aplica al crear la venta y la cotización:
+- **Vigencia**: `valid_from`/`valid_until` (vacío = abierto), `ended_at` la termina, `promotion_days` (hora local del negocio), `price_lists`/`locations` (vacío = todas), `restrict_to_clients`: `no_restriction` · `registered_clients` · `clients_list`.
+- **`single_target`** (`promotion_targets` rol `single`, producto o categoría): `amount` en `percentage` o `fixed` (fijo = **por unidad**, tope el importe de la partida).
+- **`multi_target`**: `multi_target_type` = `two_for_one`, `three_for_two`, `second_fifty_percent`, `third_fifty_percent` o `custom` (`trigger_quantity`, `discounted_quantity`, `discounted_percentage`). Objetivos con rol `trigger`; cada grupo de `trigger_quantity` unidades regala/descuenta `discounted_quantity` de las **más baratas** del conjunto (mezclando productos).
+- **`multi_target_advanced`**: compra N de los `trigger` y descuenta M unidades de los `discounted` (las más baratas) al porcentaje indicado.
+- **`cart_total`**: descuento de carrito (`percentage`/`fixed`) si el subtotal (ya con descuentos por partida) llega a `min_cart_subtotal`.
+- **Reglas de combinación**: una partida con descuento manual no recibe promoción; en una partida gana la promoción que más descuenta (no se acumulan); de carrito se aplica la mejor automática más las manuales elegidas, y se suman a los descuentos de carrito manuales.
+- **Registro**: el descuento de la partida queda en `order_item_discounts.promotion` (tipo `fixed` con el monto); el de carrito en `order_cart_discounts.promotion`. Como en Pulpos, `Order.discounts` solo suma los de carrito. La respuesta trae `promotions: [{promotion, name, amount}]`.
+- **Automáticas** (`application = automatic`) se aplican solas; `apply_promotions: false` las desactiva (exige `order.admin_discount`). **Manuales**: `promotions: [id]` en el cuerpo de la venta (en cotización exige `quotation.admin_promotions`); si no aplican → 422 `promotion_not_applicable`.
+- **Vista previa**: `dry_run: true` en `POST /api/tpv/orders` corre todo (precios, promociones, impuestos y reglas) y deshace la transacción; devuelve la venta calculada sin guardar nada ni mover inventario.
+- Al convertir una cotización, los descuentos que vinieron de promociones se recalculan con las reglas vigentes (no se duplican); los manuales se conservan.
+- No se aplican en la tienda en línea (supuesto mío).

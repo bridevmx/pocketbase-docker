@@ -16,6 +16,7 @@ Tipos: `text` `number` `bool` `date` `select(...)` `file` `rel→colección` (`[
 | `currency` * | select(mxn) |
 | `phone` | text |
 | `email` | email |
+| `utc_offset_minutes` | number |
 | `logo` | file |
 | `owner` | rel→users |
 
@@ -714,6 +715,7 @@ Tipos: `text` `number` `bool` `date` `select(...)` `file` `rel→colección` (`[
 | `type` * | select(vat\|ieps\|isr) |
 | `percentage` | number |
 | `is_withheld` | bool |
+| `amount` | number |
 
 ## `order_item_discounts`
 
@@ -905,6 +907,7 @@ Tipos: `text` `number` `bool` `date` `select(...)` `file` `rel→colección` (`[
 | `quotation_item` * | rel→quotation_items |
 | `tax` * | rel→taxes |
 | `percentage` | number |
+| `amount` | number |
 
 ## `quotation_item_discounts`
 

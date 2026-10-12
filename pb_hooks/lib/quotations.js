@@ -3,6 +3,8 @@
 const U = require(`${__hooks}/lib/util.js`);
 const LIC = require(`${__hooks}/lib/license.js`);
 const O = require(`${__hooks}/lib/orders.js`);
+const P = require(`${__hooks}/lib/promotions.js`);
+const T = require(`${__hooks}/lib/taxes.js`);
 
 
 function serialize(app, q, ctx) {
@@ -97,17 +99,21 @@ function build(tx, ctx, body, existing) {
     line.total = U.r2(gross - line.discAmount);
     lines.push(line);
   }
+  const manualPromos = Array.isArray(body.promotions) ? body.promotions.map(String) : [];
+  if (manualPromos.length) U.need(ctx, 'quotation.admin_promotions', 'No puedes aplicar promociones');
+  const promoOut = P.apply(tx, lines.filter((l) => !l.manual), { client, listId, locationId: location.id, manual: manualPromos, auto: true });
   const subtotal = U.r2(lines.reduce((s, l) => s + l.total, 0));
-  const cart = [];
+  const cart = promoOut.cart.map((d) => ({ type: d.type, amount: d.amount, title: d.title, promotion: d.promotion }));
   for (const d of Array.isArray(body.cart_discounts) ? body.cart_discounts : []) {
     U.need(ctx, 'quotation.admin_discount', 'No puedes aplicar descuentos');
     const value = Number(d.value !== undefined ? d.value : d.amount);
     if (['percentage', 'fixed'].indexOf(d.type) === -1 || !(value > 0) || (d.type === 'percentage' && value > 100)) throw U.fail(400, 'Descuento de carrito inválido', 'invalid_discount');
-    cart.push({ type: d.type, amount: d.type === 'percentage' ? U.r2(subtotal * value / 100) : U.r2(value), title: d.title || '' });
+    cart.push({ type: d.type, amount: d.type === 'percentage' ? U.r2(subtotal * value / 100) : U.r2(value), title: d.title || '', promotion: '' });
   }
   const discounts = U.r2(cart.reduce((s, d) => s + d.amount, 0));
   if (discounts >= subtotal) throw U.fail(400, 'Los descuentos exceden el total', 'invalid_discount');
 
+  const factor = subtotal > 0 ? (subtotal - discounts) / subtotal : 1;
   const now = new Date();
   const days = st ? st.getInt('quotation_default_validity_days') : 7;
   let expires = body.expires_at ? new Date(body.expires_at) : new Date(now.getTime() + days * 86400000);
@@ -124,11 +130,12 @@ function build(tx, ctx, body, existing) {
   else q = U.create(tx, 'quotations', Object.assign(data, { number: U.nextCounter(tx, 'quotation'), friendly_id: U.friendlyId(tx, 'quotations'), status: 'created', valid_from: U.nowStr(now), created_by: user.id }));
   for (const l of lines) {
     let discId = '';
-    if (l.disc) discId = U.create(tx, 'quotation_item_discounts', { type: l.disc.type, value: l.disc.value, title: l.disc.title }).id;
+    if (l.disc) discId = U.create(tx, 'quotation_item_discounts', { type: l.disc.type, value: l.disc.value, title: l.disc.title, promotion: l.disc.promotion || '' }).id;
     const row = U.create(tx, 'quotation_items', { quotation: q.id, product: l.manual ? '' : l.product.id, is_manual: !!l.manual, name: l.name, manual_cost: l.manualCost, type: l.type, quantity: l.qty, unit: l.unit, sell_price: l.price, total: l.total, price_type: l.priceType, price_breakpoint: l.breakpoint, price_list: l.plist, discount: discId });
-    for (const t of l.taxes) U.create(tx, 'quotation_item_taxes', { quotation_item: row.id, tax: t.id, percentage: t.getBool('is_exempt') ? 0 : t.getFloat('percentage') });
+    const rows = T.breakdown(l.total * factor, T.load(tx, l.taxes.map((t) => t.id))).rows;
+    for (const t of rows) U.create(tx, 'quotation_item_taxes', { quotation_item: row.id, tax: t.tax, percentage: t.percentage, amount: data.with_taxes ? t.amount : 0 });
   }
-  for (const d of cart) U.create(tx, 'quotation_cart_discounts', { quotation: q.id, type: d.type, amount: d.amount, title: d.title });
+  for (const d of cart) U.create(tx, 'quotation_cart_discounts', { quotation: q.id, type: d.type, amount: d.amount, title: d.title, promotion: d.promotion });
   return q;
 }
 
@@ -197,17 +204,24 @@ function convert(app, user, id, body) {
   if (q.getString('expires_at') && q.getString('expires_at') < U.nowStr()) throw U.fail(409, 'La cotización venció', 'quotation_expired');
   const items = U.all(app, 'quotation_items', 'quotation = {:q}', { q: q.id }, 'created');
   if (items.some((i) => i.getBool('is_manual'))) throw U.fail(422, 'Las partidas manuales no se pueden vender', 'manual_items_not_sellable');
+  // los descuentos que vienen de promociones se vuelven a calcular con las reglas vigentes (las manuales se vuelven a elegir)
+  const promos = [];
+  const fromPromo = (id) => { if (!id) return false; try { if (app.findRecordById('promotions', id).getString('application') === 'manual' && promos.indexOf(id) === -1) promos.push(id); } catch (_) {} return true; };
   const sale = Object.assign({}, body, {
     quotation: q.id, location: q.getString('location'), client: q.getString('client') || body.client, seller: q.getString('seller') || body.seller,
     price_list: q.getString('price_list'), with_taxes: q.getBool('with_taxes'),
     items: items.map((i) => {
       const o = { product: i.getString('product'), quantity: i.getFloat('quantity') };
       if (i.getString('price_type') === 'personalized') o.unit_price = i.getFloat('sell_price');
-      if (i.getString('discount')) { const d = app.findRecordById('quotation_item_discounts', i.getString('discount')); o.discount = { type: d.getString('type'), value: d.getFloat('value'), title: d.getString('title') }; }
+      if (i.getString('discount')) {
+        const d = app.findRecordById('quotation_item_discounts', i.getString('discount'));
+        if (!fromPromo(d.getString('promotion'))) o.discount = { type: d.getString('type'), value: d.getFloat('value'), title: d.getString('title') };
+      }
       return o;
     }),
-    cart_discounts: U.all(app, 'quotation_cart_discounts', 'quotation = {:q}', { q: q.id }).map((d) => ({ type: 'fixed', value: d.getFloat('amount'), title: d.getString('title') })),
+    cart_discounts: U.all(app, 'quotation_cart_discounts', 'quotation = {:q}', { q: q.id }).filter((d) => !fromPromo(d.getString('promotion'))).map((d) => ({ type: 'fixed', value: d.getFloat('amount'), title: d.getString('title') })),
   });
+  sale.promotions = promos;
   return O.createOrder(app, user, sale);
 }
 

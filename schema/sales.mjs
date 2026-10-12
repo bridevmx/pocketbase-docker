@@ -104,6 +104,7 @@ export default [
       sel('type', ['vat', 'ieps', 'isr'], { required: true }),
       num('percentage', { min: 0 }),
       bool('is_withheld'),
+      num('amount', { min: 0 }),                            // impuesto incluido en el total de la partida (0 si la venta es sin impuestos)
     ],
     idx: [index(['order_item'])],
   }),
@@ -274,6 +275,7 @@ export default [
       rel('quotation_item', 'quotation_items', { required: true, cascade: true }),
       rel('tax', 'taxes', { required: true }),
       num('percentage', { min: 0 }),
+      num('amount', { min: 0 }),
     ],
   }),
   col('quotation_item_discounts', {

@@ -113,14 +113,12 @@ Pulpos aplica permisos y varias reglas de negocio solo en la interfaz: probé qu
 
 **Hecho — ventas** ([`pulpos-sales-api.md`](pulpos-sales-api.md)): crear venta (contado, mixta, crédito, pedido guardado, offline con `request_id`), cobro posterior, entrega, abonos (uno o varios), reembolsos, cancelación y borrado, con inventario FEFO, lealtad, descuentos y las reglas de negocio validadas en servidor.
 
-**Pendiente (en este orden sugerido):**
+**Hecho — impuestos y promociones** (en [`pulpos-sales-api.md`](pulpos-sales-api.md#impuestos-y-promociones)): desglose de impuestos incluidos, reporte de impuestos, promociones automáticas y manuales (partida, 2x1/3x2/…, avanzada, carrito), vista previa `dry_run`.
 
-| Fase | Contenido |
-|---|---|
-| Impuestos y promociones | `with_taxes`, promociones automáticas |
+**Pendiente**: ninguna fase del plan. Quedan las limitaciones de las notas (supuestos marcados en cada documento de API).
 
 ## 8. Validación
 
 - `node tools/build-schema.mjs` regenera `pb_migrations/*` y `docs/pulpos-schema.md` desde `schema/*.mjs` (no editar la migración a mano).
-- `PB_BIN=/ruta/pocketbase tools/smoke.sh` levanta un PocketBase temporal y corre las comprobaciones (69 de instancia + 85 de ventas): alta única, unicidad con borrado lógico, permisos finos, costos ocultos, acotado por sucursal, documentos de solo servidor, idempotencia, topes de licencia, prueba/pago vencido, suspensión.
+- `PB_BIN=/ruta/pocketbase tools/smoke.sh` levanta un PocketBase temporal y corre las comprobaciones (instancia, ventas, inventario, caja, cotizaciones, tienda, analítica, impuestos y promociones): alta única, unicidad con borrado lógico, permisos finos, costos ocultos, acotado por sucursal, documentos de solo servidor, idempotencia, topes de licencia, prueba/pago vencido, suspensión.
 - Las migraciones son reversibles (`migrate down`).

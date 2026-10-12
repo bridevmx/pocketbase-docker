@@ -5,7 +5,8 @@ const U = require(`${__hooks}/lib/util.js`);
 const GROUPS_TIME = { day: 7, month: 10 };
 
 function params(ctx, q, opts) {
-  const off = q.tz_offset === undefined || q.tz_offset === '' ? 0 : parseInt(q.tz_offset);
+  const biz = U.first($app, 'business', 'id != ""');
+  const off = q.tz_offset === undefined || q.tz_offset === '' ? (biz ? biz.getInt('utc_offset_minutes') : 0) : parseInt(q.tz_offset);
   if (!isFinite(off) || Math.abs(off) > 840) throw U.fail(400, 'tz_offset inválido', 'invalid_tz_offset');
   const day = (v, def) => {
     const s = String(v || def || '');
@@ -191,4 +192,31 @@ function finance(app, user, q) {
   };
 }
 
-module.exports = { sales, inventory, outlays, finance };
+// ═════════ IMPUESTOS ═════════
+// Impuesto incluido en las ventas del periodo (por impuesto/tasa), menos lo devuelto en reembolsos.
+function taxes(app, user, q) {
+  const ctx = U.userCtx(app, user);
+  U.need(ctx, 'report.view_finance_reports', 'No tienes permiso para ver reportes financieros');
+  const p = params(ctx, q);
+  const bind = { s: p.start, e: p.end };
+  const f = '(o.original_total - o.discounts) * 1.0 / NULLIF(o.original_total,0)';
+  const sold = rows(app, `SELECT ot.tax AS tax, ot.type AS type, ot.percentage AS percentage, ot.is_withheld AS withheld, COALESCE(SUM(ot.amount),0) AS amount, COALESCE(SUM(oi.total * ${f}),0) AS sales
+    FROM order_item_taxes ot JOIN order_items oi ON oi.id = ot.order_item JOIN orders o ON o.id = oi."order"
+    WHERE o.deleted_at = '' AND o.payment_status != 'cancelled' AND o.made_at >= {:s} AND o.made_at < {:e} AND ${p.inList('o.location')}
+    GROUP BY ot.tax, ot.type, ot.percentage, ot.is_withheld`, bind, { tax: '', type: '', percentage: 0.5, withheld: false, amount: 0.5, sales: 0.5 });
+  const back = rows(app, `SELECT ot.tax AS tax, ot.type AS type, ot.percentage AS percentage, ot.is_withheld AS withheld, COALESCE(SUM(ot.amount * rfi.quantity_refunded / NULLIF(oi.quantity,0)),0) AS amount, 0.5 AS sales
+    FROM order_refund_items rfi JOIN order_refunds r ON r.id = rfi.refund JOIN order_items oi ON oi.id = rfi.order_item
+    JOIN order_item_taxes ot ON ot.order_item = oi.id JOIN orders o ON o.id = oi."order"
+    WHERE o.deleted_at = '' AND r.created >= {:s} AND r.created < {:e} AND ${p.inList('o.location')}
+    GROUP BY ot.tax, ot.type, ot.percentage, ot.is_withheld`, bind, { tax: '', type: '', percentage: 0.5, withheld: false, amount: 0.5, sales: 0.5 });
+  const refunded = {};
+  for (const b of back) refunded[`${b.tax}|${b.percentage}`] = b.amount;
+  const items = sold.map((r) => {
+    const rf = refunded[`${r.tax}|${r.percentage}`] || 0;
+    return { tax: r.tax, type: r.type, percentage: r.percentage, is_withheld: !!r.withheld, sales: r2(r.sales), amount: r2(r.amount), refunded: r2(rf), net_amount: r2(r.amount - rf) };
+  });
+  const collected = items.filter((i) => !i.is_withheld);
+  return { from: p.from, to: p.to, items, totals: { collected: r2(collected.reduce((s, i) => s + i.net_amount, 0)), withheld: r2(items.filter((i) => i.is_withheld).reduce((s, i) => s + i.net_amount, 0)) } };
+}
+
+module.exports = { sales, inventory, outlays, finance, taxes };

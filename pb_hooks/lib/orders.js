@@ -5,6 +5,8 @@ const U = require(`${__hooks}/lib/util.js`);
 const S = require(`${__hooks}/lib/stock.js`);
 const L = require(`${__hooks}/lib/loyalty.js`);
 const LIC = require(`${__hooks}/lib/license.js`);
+const P = require(`${__hooks}/lib/promotions.js`);
+const T = require(`${__hooks}/lib/taxes.js`);
 
 const must = (app, col, id, label) => {
   try { return app.findRecordById(col, String(id)); } catch (_) { throw U.fail(404, `${label} no existe`, 'not_found'); }
@@ -101,6 +103,17 @@ function createOrder(app, user, body) {
   const ctx = U.userCtx(app, user);
   U.need(ctx, 'order.create', 'No tienes permiso para vender');
   LIC.assertWritable(app);
+
+  // vista previa: corre todo (precios, promociones, impuestos, reglas) y deshace la transacción; no guarda nada
+  if (body.dry_run === true) {
+    let preview = null;
+    try {
+      app.runInTransaction((tx) => { preview = build(tx, ctx, body, 'dry-' + Math.random().toString(36).slice(2)); throw new Error('dry_run_done'); });
+    } catch (err) {
+      if (preview) return Object.assign({ dry_run: true }, preview);
+      throw err;
+    }
+  }
 
   const requestId = String(body.request_id || '').trim();
   if (!requestId || requestId.length > 60) throw U.fail(400, 'Falta request_id (UUID de la venta)', 'request_id_required');
@@ -201,6 +214,11 @@ function build(tx, ctx, body, requestId) {
     lines.push(line);
   }
 
+  // ── promociones: automáticas (salvo que un usuario con permiso las desactive) y las manuales elegidas
+  const manualPromos = Array.isArray(body.promotions) ? body.promotions.map(String) : [];
+  if (body.apply_promotions === false) U.need(ctx, 'order.admin_discount', 'No puedes desactivar promociones');
+  const promoOut = P.apply(tx, lines, { client: client, listId: listId, locationId: location.id, manual: manualPromos, auto: body.apply_promotions !== false });
+
   // ── totales (el cliente no los manda; los calcula el servidor)
   const subtotal = U.r2(lines.reduce((s, l) => s + l.gross, 0));
   const itemDiscounts = U.r2(lines.reduce((s, l) => s + l.discAmount, 0));
@@ -223,6 +241,7 @@ function build(tx, ctx, body, requestId) {
     cartDiscounts.push({ type: d.type, amount: d.type === 'percentage' ? U.r2(base * value / 100) : U.r2(value), title: d.title || '', promotion: d.promotion || '', loyalty_points_used: 0 });
   }
   if (loyaltyUsed > client.getFloat('loyalty_points') + 0.0001) throw U.fail(422, 'El cliente no tiene suficientes puntos', 'insufficient_loyalty_points');
+  for (const d of promoOut.cart) cartDiscounts.push(d);
   const discounts = U.r2(cartDiscounts.reduce((s, d) => s + d.amount, 0));
   if (discounts > base) throw U.fail(400, 'Los descuentos exceden el total', 'invalid_discount');
   const deliveryCost = body.delivery_cost ? U.r2(Number(body.delivery_cost)) : 0;
@@ -331,10 +350,9 @@ function build(tx, ctx, body, requestId) {
       discount: l.disc ? U.create(tx, 'order_item_discounts', { type: l.disc.type, value: l.disc.value, title: l.disc.title, promotion: l.disc.promotion }).id : '',
     });
     U.create(tx, 'order_item_costs', { order_item: item.id, unit_cost: l.unitCost, total_cost: U.r2(l.unitCost * l.qty) });
-    for (const taxId of l.product.getStringSlice('taxes')) {
-      const tax = tx.findRecordById('taxes', taxId);
-      U.create(tx, 'order_item_taxes', { order_item: item.id, tax: tax.id, type: tax.getString('type'), percentage: tax.getFloat('percentage'), is_withheld: tax.getBool('is_withheld') });
-    }
+    // precios con impuestos incluidos: se desglosa el total de la partida (ya con descuentos prorrateados)
+    const taxRows = T.breakdown(l.total * factor, T.load(tx, l.product.getStringSlice('taxes'))).rows;
+    for (const t of taxRows) U.create(tx, 'order_item_taxes', { order_item: item.id, tax: t.tax, type: t.type, percentage: t.percentage, is_withheld: t.is_withheld, amount: body.with_taxes === false ? 0 : t.amount });
     const targets = [];
     if (l.children.length) {
       for (const c of l.children) {
@@ -390,6 +408,7 @@ function build(tx, ctx, body, requestId) {
 
   const out = serialize(tx, order, ctx);
   out.warnings = warnings;
+  out.promotions = promoOut.applied;
   return out;
 }
 
