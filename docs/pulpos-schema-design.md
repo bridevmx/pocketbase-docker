@@ -13,7 +13,6 @@ El listado completo de colecciones y campos está en [`pulpos-schema.md`](pulpos
 | Productos (simple, combo, servicio, variantes, fabricados), precios por lista y volumen, impuestos, lotes | WhatsApp, agente IA, asistente, conversaciones |
 | Inventario: saldo, libro de movimientos, traspasos, ajustes, fabricación | Recargas y servicios digitales (GestoPagos) |
 | Ventas: partidas, descuentos, pagos mixtos, crédito, abonos, reembolsos, bitácora | Conciliación bancaria |
-| Cotizaciones, promociones, programa de lealtad | Suscripción/cobro de planes (Chargebee), afiliados, onboarding |
 | Compras, gastos, proveedores, deudas y pagos | Recetas médicas (farmacia) |
 | Caja: movimientos y cortes | Importaciones masivas |
 | Catálogo en línea (configuración) | Notificaciones de pago del cliente |
@@ -106,13 +105,14 @@ Pulpos aplica permisos y varias reglas de negocio solo en la interfaz: probé qu
 
 **Hecho — inventario** ([`pulpos-inventory-api.md`](pulpos-inventory-api.md)): ajustes (carga inicial, conteos), traspasos enviar/recibir, compras y gastos (costo promedio ponderado, deuda, pagos en efectivo desde caja), fabricación.
 
+**Hecho — cotizaciones** (en [`pulpos-sales-api.md`](pulpos-sales-api.md#cotizaciones)): crear, editar, consultar, borrar y convertir en venta.
+
 **Hecho — ventas** ([`pulpos-sales-api.md`](pulpos-sales-api.md)): crear venta (contado, mixta, crédito, pedido guardado, offline con `request_id`), cobro posterior, entrega, abonos (uno o varios), reembolsos, cancelación y borrado, con inventario FEFO, lealtad, descuentos y las reglas de negocio validadas en servidor.
 
 **Pendiente (en este orden sugerido):**
 
 | Fase | Contenido |
 |---|---|
-| Cotizaciones | alta con totales y conversión a venta |
 | Tienda en línea | rutas públicas por subdominio: `validateCart`, `createOrder` con precios del servidor y stock comprometido |
 | Analítica | ventas por periodo/producto/cliente/categoría/vendedor/pago, inventario y margen |
 | Impuestos y promociones | `with_taxes`, promociones automáticas |

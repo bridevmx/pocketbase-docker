@@ -94,3 +94,21 @@ Respuesta: `{ order, items[], payments[], cart_discounts[], debt, events[], warn
 - El costo de un combo es el de su propio `product_costs`; los componentes se registran con costo 0 para no duplicar.
 - El inventario inicial aún se carga con superusuario: llegará con las rutas de **ajustes, compras y traspasos** (fase de inventario).
 - Falta: tienda en línea pública, cotizaciones (CRUD con totales), reportes (`analytics`), corte de caja y fabricación.
+
+# Cotizaciones
+Rutas en `pb_hooks/quotations.pb.js`. Se calculan como una venta (precio por lista y escalón de cantidad, descuentos), pero no mueven inventario, pagos ni puntos.
+
+| Ruta | Permiso |
+|---|---|
+| `POST /api/tpv/quotations` | `quotation.create` |
+| `GET /api/tpv/quotations/{id}` | `quotation.read` |
+| `PUT /api/tpv/quotations/{id}` (reemplaza partidas; solo `created`) | `quotation.edit` |
+| `DELETE /api/tpv/quotations/{id}` (borrado lógico; no si ya se vendió) | `quotation.edit` |
+| `POST /api/tpv/quotations/{id}/convert` | `quotation.read` + los de una venta |
+
+Body: `{ location, client?, seller?, price_list?, expires_at?, client_note?, notes?, with_taxes?, items:[…], cart_discounts?:[{type,value,title}] }`. Partida de producto: `{ product, quantity, unit_price?, discount?:{type,value,title}, taxes?:[id] }`; partida manual: `{ manual:true, name, quantity, sell_price, manual_cost?, taxes? }`.
+Permisos finos: `quotation.admin_discount` (descuentos), `quotation.apply_personalized_price` (+ ajuste de precios personalizados activo), `quotation.manage_manual_entry`, `quotation.remove_and_add_taxes`. `manual_cost` solo se ve con `product.read_cost`.
+Vigencia: `expires_at` o `quotation_default_validity_days`; `client_note` por defecto toma `quotation_fixed_note`. Respuesta: cotización con `items` (con `taxes` y `discount`), `cart_discounts` y `total` = subtotal − descuentos de carrito.
+
+**Convertir**: `{ request_id, cashier, payments, … }` arma la venta con los productos, cantidades, cliente, vendedor, lista y descuentos de la cotización, y la crea con las reglas normales (la cotización pasa a `sold`). Los precios se recalculan con la lista vigente (los personalizados se conservan). Errores: `manual_items_not_sellable` (las partidas manuales no se venden), `quotation_expired`, `quotation_already_sold`.
+Supuestos míos: no hay aviso de existencias insuficientes al cotizar; los combos se guardan como una sola partida (sin `combo_parent`); la cotización vencida no se puede convertir.

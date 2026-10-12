@@ -393,4 +393,4 @@ function build(tx, ctx, body, requestId) {
   return out;
 }
 
-module.exports = { createOrder, serialize, must, parsePayments, currentDebt, hasOverdueDebt, debtLimitFor, parseDueDate };
+module.exports = { createOrder, priceFor, serialize, must, parsePayments, currentDebt, hasOverdueDebt, debtLimitFor, parseDueDate };
