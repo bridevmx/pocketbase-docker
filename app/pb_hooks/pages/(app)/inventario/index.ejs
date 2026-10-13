@@ -1,0 +1,87 @@
+<script server>
+  const L = resolve('lib')
+  const C = resolve('crud')
+  const c = pb({ request })
+  const dueno = auth.get('rol') === 'dueno'
+  let error = ''
+  let ok = ''
+  if (request.method === 'POST') {
+    const f = body()
+    try {
+      const accion = C.str(f.accion)
+      if (accion === 'mover') {
+        const tipo = C.str(f.tipo)
+        const cant = C.cantidadMovimiento(tipo, f.cantidad)
+        if (!cant) throw { message: 'La cantidad no puede ser cero', response: { message: 'La cantidad no puede ser cero' } }
+        c.collection('movimientos_inventario').create({
+          insumo: C.str(f.insumo), tipo: tipo, cantidad: cant,
+          fecha: L.aPB(Date.now()),
+          costo_unitario: f.costo_unitario === undefined || f.costo_unitario === '' ? 0 : Number(f.costo_unitario),
+          nota: C.str(f.nota)
+        })
+        ok = 'Movimiento registrado'
+      } else if (accion === 'borrar') {
+        c.collection('movimientos_inventario').delete(C.str(f.ref))
+        ok = 'Movimiento eliminado'
+      }
+    } catch (e) {
+      error = L.mensajeError(e)
+    }
+    if (ok) redirect('/inventario', { message: ok })   // fuera del try
+  }
+  let insumos = []
+  let stock = {}
+  let movs = []
+  try {
+    insumos = L.listar(c, 'insumos', { filter: 'activo = true', sort: 'nombre' })
+    L.listar(c, 'v_stock_insumos').forEach(s => { stock[s.id] = s })
+    movs = c.collection('movimientos_inventario').getList(1, 25, { sort: '-fecha,-created', expand: 'insumo' }).items
+  } catch (e) {
+    error = error || L.mensajeError(e)
+  }
+  insumos.sort((a, b) => {
+    const ba = stock[a.id] && stock[a.id].bajo_minimo ? 0 : 1
+    const bb = stock[b.id] && stock[b.id].bajo_minimo ? 0 : 1
+    return ba - bb || (a.nombre < b.nombre ? -1 : 1)
+  })
+</script>
+<h1>Inventario</h1>
+<% if (error) { %><p class="error"><%= error %></p><% } %>
+
+<section class="tarjeta">
+  <h2>Registrar movimiento</h2>
+  <form method="post" class="fila">
+    <input type="hidden" name="accion" value="mover" />
+    <select name="insumo" required><option value="">Insumo…</option><% insumos.forEach(i => { %><option value="<%= i.id %>"><%= i.nombre %> (<%= i.unidad_base || 'pieza' %>)</option><% }) %></select>
+    <select name="tipo"><% C.TIPOS_MOV.forEach(o => { %><option value="<%= o[0] %>"><%= o[1] %></option><% }) %></select>
+    <input name="cantidad" type="number" step="any" placeholder="Cantidad" required />
+    <input name="costo_unitario" type="number" step="any" min="0" placeholder="Costo unit. (compra)" />
+    <input name="nota" type="text" placeholder="Nota" />
+    <button type="submit">Registrar</button>
+  </form>
+  <p class="sub">Compra suma; merma y consumo restan; ajuste usa el signo que escribas (ej. -3).</p>
+</section>
+
+<section class="tarjeta">
+  <h2>Existencias</h2>
+  <ul class="lista">
+    <% insumos.forEach(i => { const s = stock[i.id] || { stock_actual: 0, stock_minimo: i.stock_minimo, bajo_minimo: 0 } %>
+    <li class="<%= s.bajo_minimo ? 'choque' : '' %>"><a href="/catalogo/insumos/<%= i.id %>"><b><%= i.nombre %></b></a>
+      <small><%= [i.color, i.tamano].filter(Boolean).join(' · ') %></small>
+      <span class="der"><%= L.cantidad(s.stock_actual, i.unidad_base) %><% if (s.bajo_minimo) { %> <span class="error">· bajo mínimo (<%= L.cantidad(s.stock_minimo, i.unidad_base) %>)</span><% } %></span></li>
+    <% }) %>
+    <% if (!insumos.length) { %><li class="vacio">Aún no hay insumos. <a href="/catalogo/insumos/nuevo">Crea el primero</a>.</li><% } %>
+  </ul>
+</section>
+
+<section class="tarjeta">
+  <h2>Últimos movimientos</h2>
+  <ul class="lista">
+    <% movs.forEach(m => { const i = m.expand && m.expand.insumo %>
+    <li><%= L.fechaLocal(m.fecha || m.created) %> · <%= m.tipo.replace('_', ' ') %> · <%= i ? i.nombre : m.insumo %>
+      <b class="<%= m.cantidad < 0 ? 'error' : '' %>"><%= m.cantidad > 0 ? '+' : '' %><%= m.cantidad %></b> <small><%= m.nota || '' %></small>
+      <% if (dueno) { %><form method="post" class="der" onsubmit="return confirm('¿Eliminar este movimiento?')"><input type="hidden" name="accion" value="borrar" /><input type="hidden" name="ref" value="<%= m.id %>" /><button type="submit" class="chico">Borrar</button></form><% } %></li>
+    <% }) %>
+    <% if (!movs.length) { %><li class="vacio">Sin movimientos</li><% } %>
+  </ul>
+</section>

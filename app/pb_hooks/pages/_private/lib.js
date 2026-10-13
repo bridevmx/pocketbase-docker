@@ -104,6 +104,19 @@ function etiquetaDia(f) {
   return DIAS_CORTOS[diaSemana(f)] + ' ' + p.d + ' ' + MESES_CORTOS[p.m - 1]
 }
 
+// "2026-10-17T10:30" (hora local del negocio) -> "2026-10-17 16:30:00.000Z"; vacío -> ''
+function desdeInput(s) {
+  var m = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})/.exec(s || '')
+  if (!m) return ''
+  return aPB(Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], 0) - OFFSET_MS)
+}
+
+// valor de PocketBase -> "2026-10-17T10:30" para <input type="datetime-local">
+function haciaInput(s) {
+  if (!s || isNaN(aMs(s))) return ''
+  return fechaLocal(s) + 'T' + horaLocal(s)
+}
+
 // ---------- formato ----------
 
 function mxn(n) {
@@ -136,6 +149,7 @@ var GENERICOS = {
   "The requested resource wasn't found": 'No se encontró (o no tienes permiso para verlo).',
   'Failed to load the requested resource': 'No se pudo cargar la información.',
   'Something went wrong while processing your request': 'Algo falló al procesar la solicitud.',
+  'Failed to delete': 'No se pudo eliminar: probablemente está en uso. Mejor desactívalo.',
   'Failed to authenticate': 'Correo o contraseña incorrectos.'
 }
 
@@ -145,11 +159,15 @@ function mensajeError(e) {
   var partesMsg = []
   if (r.message) {
     var m = String(r.message).replace(/\.$/, '')
+    if (m.indexOf('Failed to delete') === 0) m = 'Failed to delete'
     partesMsg.push(GENERICOS[m] || m)
   }
   var d = r.data || {}
   for (var k in d) {
-    if (d[k] && d[k].message) partesMsg.push(k + ': ' + String(d[k].message).replace(/\.$/, ''))
+    if (d[k] && d[k].message) {
+      var dm = String(d[k].message).replace(/\.$/, '')
+      partesMsg.push(k + ': ' + (dm === 'Value must be unique' ? 'ya existe' : dm === 'Cannot be blank' ? 'es obligatorio' : dm))
+    }
   }
   return partesMsg.length ? partesMsg.join(' · ') : (e.message || String(e))
 }
@@ -288,6 +306,7 @@ function consultaEvento(c, id) {
     faltaAnticipo: Math.max(0, anticipoRequerido - saldo.pagado),
     lineas: lineas.map(function (l) {
       return {
+        id: l.id,
         descripcion: l.descripcion || l.tipo,
         tipo: l.tipo,
         cantidad: l.cantidad,
@@ -300,6 +319,7 @@ function consultaEvento(c, id) {
     reservas: reservas.map(function (r) {
       var libres = choque[r.activo]
       return {
+        id: r.id,
         nombre: r.expand && r.expand.activo ? r.expand.activo.nombre : r.activo,
         cantidad: r.cantidad,
         libres: libres,
@@ -410,5 +430,5 @@ module.exports = {
   sumarDias: sumarDias, mesDe: mesDe, mesValido: mesValido, nombreMes: nombreMes, etiquetaDia: etiquetaDia,
   rejilla: rejilla, mxn: mxn, cantidad: cantidad, mensajeError: mensajeError, idValido: idValido,
   consultaCalendario: consultaCalendario, consultaEvento: consultaEvento, consultaCarga: consultaCarga,
-  agrupar: agrupar
+  agrupar: agrupar, listar: listar, porEventos: porEventos, desdeInput: desdeInput, haciaInput: haciaInput
 }

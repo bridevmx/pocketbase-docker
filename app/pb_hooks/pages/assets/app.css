@@ -39,3 +39,13 @@ button,.boton{background:var(--acc);color:#fff;border-color:var(--acc);cursor:po
 .ev i{display:block;font-style:normal;color:var(--bad)}.ev.choque{outline:1px solid var(--bad)}
 .leyenda{color:var(--mut);font-size:.85rem}.punto{display:inline-block;width:10px;height:10px;border-radius:50%;background:currentColor;margin:0 4px 0 12px}
 @media (max-width:640px){.celda{min-height:60px}.ev{font-size:.62rem}.ev b{display:block}}
+.cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:4px 16px}
+.cols h2,.cols .fila{grid-column:1/-1}
+.cols input,.cols select{width:100%}
+label.check{display:flex;align-items:center;gap:8px}label.check input{width:20px;height:20px}
+.peligro{background:var(--bad);border-color:var(--bad)}
+.chico{padding:2px 10px;font-size:.8rem}
+.en-linea{display:inline}
+form.der{display:inline;margin:0}
+details.tarjeta summary{cursor:pointer}
+@media (max-width:640px){.barra nav{flex-wrap:wrap;gap:10px}}

@@ -1,0 +1,135 @@
+<script server>
+  const L = resolve('lib')
+  const C = resolve('crud')
+  const ent = C.ENT[params.tipo]
+  if (!ent) redirect('/calendario')
+  const c = pb({ request })
+  const nuevo = params.id === 'nuevo'
+  const puede = !ent.dueno || auth.get('rol') === 'dueno'
+  const base = '/catalogo/' + params.tipo
+  let error = ''
+  let registro = null
+  let form = null
+
+  if (!nuevo) {
+    if (!L.idValido(params.id)) redirect(base)
+    try {
+      registro = c.collection(ent.col).getOne(params.id)
+    } catch (e) {
+      redirect(base, { message: 'No se encontró el registro' })
+    }
+  }
+
+  if (request.method === 'POST') {
+    const f = body()
+    form = f
+    let ok = ''
+    let destino = ''
+    try {
+      const accion = C.str(f.accion)
+      if (!puede) throw { message: 'Solo la dueña puede modificar esto', response: { message: 'Solo la dueña puede modificar esto' } }
+      if (accion === 'guardar') {
+        const datos = C.armar(ent.campos, f, L)
+        if (nuevo) {
+          const r = c.collection(ent.col).create(datos)
+          destino = base + '/' + r.id
+          ok = 'Guardado'
+        } else {
+          registro = c.collection(ent.col).update(registro.id, datos)
+          ok = 'Guardado'
+        }
+      } else if (accion === 'eliminar' && !nuevo) {
+        c.collection(ent.col).delete(registro.id)
+        destino = base
+        ok = 'Eliminado'
+      } else if (accion === 'receta_insumo' && ent.recetas) {
+        c.collection('receta_insumos').create({ servicio: registro.id, insumo: C.str(f.insumo), cantidad_por_unidad: Number(f.cantidad) || 0 })
+        ok = 'Insumo agregado a la receta'
+      } else if (accion === 'receta_activo' && ent.recetas) {
+        c.collection('receta_activos').create({ servicio: registro.id, activo: C.str(f.activo), cantidad: Number(f.cantidad) || 0 })
+        ok = 'Estructura agregada a la receta'
+      } else if (accion === 'receta_quitar' && ent.recetas) {
+        c.collection(f.tabla === 'activos' ? 'receta_activos' : 'receta_insumos').delete(C.str(f.ref))
+        ok = 'Quitado de la receta'
+      }
+    } catch (e) {
+      error = L.mensajeError(e)
+    }
+    if (ok) redirect(destino || base + '/' + registro.id, { message: ok })   // fuera del try
+  }
+
+  let recInsumos = []
+  let recActivos = []
+  let todosInsumos = []
+  let todosActivos = []
+  if (!nuevo && ent.recetas) {
+    try {
+      recInsumos = L.listar(c, 'receta_insumos', { filter: 'servicio = "' + registro.id + '"', expand: 'insumo' })
+      recActivos = L.listar(c, 'receta_activos', { filter: 'servicio = "' + registro.id + '"', expand: 'activo' })
+      todosInsumos = L.listar(c, 'insumos', { filter: 'activo = true', sort: 'nombre' })
+      todosActivos = L.listar(c, 'activos', { filter: 'activo = true', sort: 'nombre' })
+    } catch (e) {
+      error = error || L.mensajeError(e)
+    }
+  }
+  const origen = form || registro
+</script>
+<p><a href="<%= base %>">‹ <%= ent.plural %></a></p>
+<h1><%= nuevo ? 'Nuevo ' + ent.singular : registro.nombre %></h1>
+<% if (error) { %><p class="error"><%= error %></p><% } %>
+<% if (!puede) { %><p class="sub">Solo la dueña puede modificar el catálogo.</p><% } %>
+
+<section class="tarjeta">
+  <form method="post" class="cols">
+    <input type="hidden" name="accion" value="guardar" />
+    <% ent.campos.forEach(campo => { %>
+      <%- include('campo.ejs', { c: campo, valor: form ? (campo.tipo === 'bool' ? C.marcado(form[campo.n]) : (campo.tipo === 'date' ? form[campo.n] : form[campo.n])) : C.paraInput(campo, registro, L), solo: !puede }) %>
+    <% }) %>
+    <% if (puede) { %><div class="fila"><button type="submit">Guardar</button></div><% } %>
+  </form>
+  <% if (puede && !nuevo) { %>
+  <form method="post" onsubmit="return confirm('¿Eliminar definitivamente?')">
+    <input type="hidden" name="accion" value="eliminar" />
+    <button type="submit" class="peligro">Eliminar</button>
+  </form>
+  <% } %>
+</section>
+
+<% if (!nuevo && ent.recetas) { %>
+<section class="tarjeta">
+  <h2>Receta de insumos <small>(por cada <%= registro.unidad_venta || 'unidad' %> vendida)</small></h2>
+  <ul class="lista">
+    <% recInsumos.forEach(r => { const i = r.expand && r.expand.insumo %>
+    <li><%= i ? i.nombre : r.insumo %> <small><%= L.cantidad(r.cantidad_por_unidad, i ? i.unidad_base : 'pieza') %></small>
+      <% if (puede) { %><form method="post" class="der"><input type="hidden" name="accion" value="receta_quitar" /><input type="hidden" name="tabla" value="insumos" /><input type="hidden" name="ref" value="<%= r.id %>" /><button type="submit" class="chico">Quitar</button></form><% } %></li>
+    <% }) %>
+    <% if (!recInsumos.length) { %><li class="vacio">Sin insumos. La lista de carga y el inventario se calculan con esta receta.</li><% } %>
+  </ul>
+  <% if (puede) { %>
+  <form method="post" class="fila">
+    <input type="hidden" name="accion" value="receta_insumo" />
+    <select name="insumo" required><option value="">Insumo…</option><% todosInsumos.forEach(i => { %><option value="<%= i.id %>"><%= i.nombre %> (<%= i.unidad_base || 'pieza' %>)</option><% }) %></select>
+    <input name="cantidad" type="number" min="0" step="any" placeholder="Cantidad" required />
+    <button type="submit">Agregar</button>
+  </form>
+  <% } %>
+</section>
+<section class="tarjeta">
+  <h2>Estructuras que usa</h2>
+  <ul class="lista">
+    <% recActivos.forEach(r => { const a = r.expand && r.expand.activo %>
+    <li><%= r.cantidad %> × <%= a ? a.nombre : r.activo %>
+      <% if (puede) { %><form method="post" class="der"><input type="hidden" name="accion" value="receta_quitar" /><input type="hidden" name="tabla" value="activos" /><input type="hidden" name="ref" value="<%= r.id %>" /><button type="submit" class="chico">Quitar</button></form><% } %></li>
+    <% }) %>
+    <% if (!recActivos.length) { %><li class="vacio">Sin estructuras</li><% } %>
+  </ul>
+  <% if (puede) { %>
+  <form method="post" class="fila">
+    <input type="hidden" name="accion" value="receta_activo" />
+    <select name="activo" required><option value="">Estructura…</option><% todosActivos.forEach(a => { %><option value="<%= a.id %>"><%= a.nombre %></option><% }) %></select>
+    <input name="cantidad" type="number" min="1" step="1" value="1" required />
+    <button type="submit">Agregar</button>
+  </form>
+  <% } %>
+</section>
+<% } %>

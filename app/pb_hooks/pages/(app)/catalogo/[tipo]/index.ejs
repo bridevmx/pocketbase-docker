@@ -1,0 +1,38 @@
+<script server>
+  const L = resolve('lib')
+  const C = resolve('crud')
+  const ent = C.ENT[params.tipo]
+  if (!ent) redirect('/calendario')
+  const c = pb({ request })
+  const q = C.limpiarBusqueda(params.q)
+  const soloLectura = ent.dueno && auth.get('rol') !== 'dueno'
+  let filas = []
+  let error = ''
+  try {
+    const o = { sort: ent.orden }
+    const f = C.filtroBusqueda(ent.buscar, q)
+    if (f) o.filter = f
+    filas = L.listar(c, ent.col, o)
+  } catch (e) {
+    error = L.mensajeError(e)
+  }
+</script>
+<h1><%= ent.plural %></h1>
+<% if (error) { %><p class="error"><%= error %></p><% } %>
+<form method="get" class="filtro">
+  <input type="search" name="q" value="<%= q %>" placeholder="Buscar…" />
+  <button type="submit">Buscar</button>
+  <% if (!soloLectura) { %><a class="boton der" href="/catalogo/<%= params.tipo %>/nuevo">+ Nuevo <%= ent.singular %></a><% } %>
+</form>
+<section class="tarjeta">
+  <ul class="lista">
+    <% filas.forEach(r => { %>
+    <li>
+      <a href="/catalogo/<%= params.tipo %>/<%= r.id %>"><b><%= r.nombre %></b></a>
+      <% if (r.activo === false) { %><span class="etiqueta">inactivo</span><% } %>
+      <small><%= ent.resumen(r, L) %></small>
+    </li>
+    <% }) %>
+    <% if (!filas.length && !error) { %><li class="vacio">Sin resultados</li><% } %>
+  </ul>
+</section>

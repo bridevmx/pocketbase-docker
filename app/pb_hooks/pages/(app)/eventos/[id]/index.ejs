@@ -1,43 +1,85 @@
 <script server>
   const L = resolve('lib')
+  const C = resolve('crud')
   const id = params.id
   const cliente = pb({ request })
+  const dueno = auth.get('rol') === 'dueno'
   let error = ''
   let listo = ''
+  let destino = ''
   if (request.method === 'POST') {
     const f = body()
     try {
-      if (f.accion === 'pago') {
+      const accion = C.str(f.accion)
+      if (accion === 'pago') {
         cliente.collection('pagos').create({
           evento: id,
-          tipo: f.tipo,
+          tipo: C.str(f.tipo),
           monto: Number(f.monto),
-          metodo: f.metodo,
+          metodo: C.str(f.metodo),
           fecha: new Date().toISOString().replace('T', ' '),
-          nota: String(f.nota || '')
+          nota: C.str(f.nota)
         })
         listo = 'Pago registrado'
-      } else if (f.accion === 'apartar') {
+      } else if (accion === 'apartar') {
         cliente.collection('eventos').update(id, { estado: 'apartado' })
         listo = 'Evento apartado'
+      } else if (accion === 'estado') {
+        const nuevo = C.str(f.estado)
+        if (['cotizacion', 'apartado', 'realizado', 'cancelado'].indexOf(nuevo) < 0) throw { message: 'Estado no válido', response: { message: 'Estado no válido' } }
+        cliente.collection('eventos').update(id, { estado: nuevo })
+        listo = 'Estado: ' + nuevo
+      } else if (accion === 'editar') {
+        const datos = C.armar(C.CAMPOS_EVENTO, f, L)
+        const falla = C.validarFechas(datos)
+        if (falla) throw { message: falla, response: { message: falla } }
+        if (C.str(f.cliente)) datos.cliente = C.str(f.cliente)
+        cliente.collection('eventos').update(id, datos)
+        listo = 'Datos del evento guardados'
+      } else if (accion === 'linea') {
+        const n = cliente.collection('evento_lineas').getList(1, 1, { filter: 'evento = "' + id + '"' }).totalItems
+        cliente.collection('evento_lineas').create(C.armarLinea(cliente, f, id, n + 1))
+        listo = 'Concepto agregado'
+      } else if (accion === 'linea_del') {
+        cliente.collection('evento_lineas').delete(C.str(f.ref))
+        listo = 'Concepto quitado'
+      } else if (accion === 'reserva') {
+        cliente.collection('reservas_activos').create({ evento: id, activo: C.str(f.activo), cantidad: Number(f.cantidad) || 0 })
+        listo = 'Estructura reservada'
+      } else if (accion === 'reserva_del') {
+        cliente.collection('reservas_activos').delete(C.str(f.ref))
+        listo = 'Reserva quitada'
+      } else if (accion === 'pago_del') {
+        cliente.collection('pagos').delete(C.str(f.ref))
+        listo = 'Pago eliminado'
+      } else if (accion === 'eliminar') {
+        cliente.collection('eventos').delete(id)
+        listo = 'Evento eliminado'
+        destino = '/eventos'
       }
     } catch (e) {
       error = L.mensajeError(e)
     }
-    if (listo) redirect('/eventos/' + id, { message: listo })   // fuera del try
+    if (listo) redirect(destino || '/eventos/' + id, { message: listo })   // fuera del try
   }
   let d = null
+  let clientes = []
+  let servicios = []
+  let activos = []
   try {
     d = L.consultaEvento(cliente, id)
+    clientes = L.listar(cliente, 'clientes', { sort: 'nombre' })
+    servicios = L.listar(cliente, 'servicios', { filter: 'activo = true', sort: 'nombre' })
+    activos = L.listar(cliente, 'activos', { filter: 'activo = true', sort: 'nombre' })
   } catch (e) {
     error = error || L.mensajeError(e)
   }
 </script>
-<p><a href="/calendario">‹ Calendario</a></p>
+<p><a href="/calendario">‹ Calendario</a> · <a href="/eventos">Eventos</a></p>
 <% if (error) { %><p class="error"><%= error %></p><% } %>
 <% if (d) { const ev = d.evento %>
 <h1><%= ev.titulo || ev.tema || ev.folio %> <span class="etiqueta estado-<%= ev.estado %>"><%= ev.estado %></span></h1>
-<p class="sub"><%= ev.folio %> · <%= d.cliente ? d.cliente.nombre : '' %> · <%= d.fecha %> · montaje <%= d.montaje %> – desmontaje <%= d.desmontaje %><% if (ev.direccion) { %> · <%= ev.direccion %><% } %></p>
+<p class="sub"><%= ev.folio %> · <%= d.cliente ? d.cliente.nombre : '' %><%= d.cliente && d.cliente.telefono ? ' (' + d.cliente.telefono + ')' : '' %> · <%= d.fecha %> · montaje <%= d.montaje %> – desmontaje <%= d.desmontaje %><% if (ev.direccion) { %> · <%= ev.direccion %><% } %></p>
 
 <section class="tarjeta">
   <h2>Cuentas</h2>
@@ -48,48 +90,96 @@
     <dt>Anticipo (<%= ev.porcentaje_anticipo || 0 %>%)</dt><dd><%= L.mxn(d.anticipoRequerido) %><% if (d.faltaAnticipo > 0) { %> · <span class="error">faltan <%= L.mxn(d.faltaAnticipo) %></span><% } %></dd>
     <% if (d.saldo.deposito_retenido > 0) { %><dt>Depósito en garantía</dt><dd><%= L.mxn(d.saldo.deposito_retenido) %></dd><% } %>
   </dl>
-  <% if (ev.estado === 'cotizacion') { %>
-  <form method="post"><input type="hidden" name="accion" value="apartar" /><button type="submit">Apartar fecha</button></form>
-  <% } %>
+  <div class="fila">
+    <% if (ev.estado === 'cotizacion') { %>
+    <form method="post"><input type="hidden" name="accion" value="apartar" /><button type="submit">Apartar fecha</button></form>
+    <% } %>
+    <% if (ev.estado === 'apartado') { %>
+    <form method="post"><input type="hidden" name="accion" value="estado" /><input type="hidden" name="estado" value="realizado" /><button type="submit">Marcar como realizado</button></form>
+    <% } %>
+    <% if (ev.estado === 'cancelado') { %>
+    <form method="post"><input type="hidden" name="accion" value="estado" /><input type="hidden" name="estado" value="cotizacion" /><button type="submit">Reabrir como cotización</button></form>
+    <% } else if (ev.estado !== 'realizado') { %>
+    <form method="post" onsubmit="return confirm('¿Cancelar este evento? Libera sus estructuras.')"><input type="hidden" name="accion" value="estado" /><input type="hidden" name="estado" value="cancelado" /><button type="submit" class="peligro">Cancelar evento</button></form>
+    <% } %>
+  </div>
 </section>
 
 <section class="tarjeta">
   <h2>Conceptos</h2>
   <ul class="lista">
     <% d.lineas.forEach(l => { %>
-    <li><%= l.cantidad %> × <%= l.descripcion %> <span class="der"><%= L.mxn(l.importe) %><%= l.opcional ? ' (opcional)' : '' %></span></li>
+    <li><%= l.cantidad %> × <%= l.descripcion %> <small><%= L.mxn(l.precio) %> c/u</small>
+      <span class="der"><%= L.mxn(l.importe) %><%= l.opcional ? ' (opcional)' : '' %>
+        <form method="post" class="en-linea"><input type="hidden" name="accion" value="linea_del" /><input type="hidden" name="ref" value="<%= l.id %>" /><button type="submit" class="chico" title="Quitar">✕</button></form></span></li>
     <% }) %>
+    <% if (!d.lineas.length) { %><li class="vacio">Aún no hay conceptos. Agrega servicios para cotizar.</li><% } %>
   </ul>
+  <form method="post" class="fila">
+    <input type="hidden" name="accion" value="linea" />
+    <select name="servicio"><option value="">Servicio del catálogo…</option><% servicios.forEach(s => { %><option value="<%= s.id %>"><%= s.nombre %> · <%= L.mxn(s.precio_base) %></option><% }) %></select>
+    <input name="descripcion" type="text" placeholder="Descripción (opcional si eliges servicio)" />
+    <select name="tipo"><option value="">Tipo (auto)</option><% C.TIPOS_LINEA.forEach(o => { %><option value="<%= o[0] %>"><%= o[1] %></option><% }) %></select>
+    <input name="cantidad" type="number" step="any" value="1" style="width:6em" title="Cantidad" />
+    <input name="precio_unitario" type="number" step="any" placeholder="Precio unit." style="width:8em" title="Vacío = precio del catálogo. Descuentos en negativo." />
+    <label class="check"><input type="checkbox" name="es_opcional" value="1" /> Opcional</label>
+    <button type="submit">Agregar</button>
+  </form>
 </section>
 
-<% if (d.reservas.length) { %>
 <section class="tarjeta">
   <h2>Estructuras reservadas</h2>
   <ul class="lista">
     <% d.reservas.forEach(r => { %>
-    <li class="<%= r.choque ? 'choque' : '' %>"><%= r.cantidad %> × <%= r.nombre %><% if (r.choque) { %> <span class="error">solo hay <%= r.libres %> libres</span><% } %></li>
+    <li class="<%= r.choque ? 'choque' : '' %>"><%= r.cantidad %> × <%= r.nombre %><% if (r.choque) { %> <span class="error">solo hay <%= r.libres %> libres</span><% } %>
+      <form method="post" class="der"><input type="hidden" name="accion" value="reserva_del" /><input type="hidden" name="ref" value="<%= r.id %>" /><button type="submit" class="chico">Quitar</button></form></li>
     <% }) %>
+    <% if (!d.reservas.length) { %><li class="vacio">Sin estructuras reservadas</li><% } %>
   </ul>
+  <form method="post" class="fila">
+    <input type="hidden" name="accion" value="reserva" />
+    <select name="activo" required><option value="">Estructura…</option><% activos.forEach(a => { %><option value="<%= a.id %>"><%= a.nombre %> (<%= a.cantidad_total %>)</option><% }) %></select>
+    <input name="cantidad" type="number" min="1" step="1" value="1" style="width:6em" required />
+    <button type="submit">Reservar</button>
+  </form>
 </section>
-<% } %>
 
 <section class="tarjeta">
   <h2>Pagos</h2>
   <ul class="lista">
     <% d.pagos.forEach(p => { %>
-    <li><%= p.tipo.replace('_', ' ') %> · <%= p.metodo || '' %> <span class="der"><%= L.mxn(p.monto) %></span></li>
+    <li><%= p.tipo.replace('_', ' ') %> · <%= p.metodo || '' %> <span class="der"><%= L.mxn(p.monto) %>
+      <% if (dueno) { %><form method="post" class="en-linea" onsubmit="return confirm('¿Eliminar este pago?')"><input type="hidden" name="accion" value="pago_del" /><input type="hidden" name="ref" value="<%= p.id %>" /><button type="submit" class="chico" title="Eliminar">✕</button></form><% } %></span></li>
     <% }) %>
     <% if (!d.pagos.length) { %><li class="vacio">Sin pagos todavía</li><% } %>
   </ul>
   <form method="post" class="fila">
     <input type="hidden" name="accion" value="pago" />
     <select name="tipo">
-      <option value="anticipo">Anticipo</option><option value="abono">Abono</option><option value="liquidacion">Liquidación</option>
-      <option value="deposito_garantia">Depósito en garantía</option><option value="devolucion_deposito">Devolución de depósito</option><option value="reembolso">Reembolso</option>
+      <% C.TIPOS_PAGO.forEach(o => { %><option value="<%= o[0] %>"><%= o[1] %></option><% }) %>
     </select>
     <input name="monto" type="number" min="1" step="0.01" placeholder="Monto" required />
     <select name="metodo"><option value="efectivo">Efectivo</option><option value="transferencia">Transferencia</option><option value="tarjeta">Tarjeta</option><option value="otro">Otro</option></select>
     <button type="submit">Registrar</button>
   </form>
 </section>
+
+<details class="tarjeta">
+  <summary><b>Editar datos del evento</b></summary>
+  <form method="post" class="cols">
+    <input type="hidden" name="accion" value="editar" />
+    <label>Cliente
+      <select name="cliente"><% clientes.forEach(cl => { %><option value="<%= cl.id %>"<%= cl.id === ev.cliente ? ' selected' : '' %>><%= cl.nombre %></option><% }) %></select>
+    </label>
+    <% C.CAMPOS_EVENTO.forEach(campo => { %>
+      <%- include('campo.ejs', { c: campo, valor: C.paraInput(campo, ev, L) }) %>
+    <% }) %>
+    <div class="fila"><button type="submit">Guardar cambios</button></div>
+  </form>
+  <% if (dueno) { %>
+  <form method="post" onsubmit="return confirm('¿Eliminar el evento con sus conceptos, reservas y pagos?')">
+    <input type="hidden" name="accion" value="eliminar" /><button type="submit" class="peligro">Eliminar evento</button>
+  </form>
+  <% } %>
+</details>
 <% } %>

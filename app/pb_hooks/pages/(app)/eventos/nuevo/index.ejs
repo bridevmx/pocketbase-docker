@@ -1,0 +1,55 @@
+<script server>
+  const L = resolve('lib')
+  const C = resolve('crud')
+  const c = pb({ request })
+  let error = ''
+  let form = null
+  let clientes = []
+  try {
+    clientes = L.listar(c, 'clientes', { sort: 'nombre' })
+  } catch (e) {
+    error = L.mensajeError(e)
+  }
+  let creado = ''
+  if (request.method === 'POST') {
+    const f = body()
+    form = f
+    try {
+      const datos = C.armar(C.CAMPOS_EVENTO, f, L)
+      const falla = C.validarFechas(datos)
+      if (falla) throw { message: falla, response: { message: falla } }
+      let clienteId = C.str(f.cliente)
+      if (!clienteId) {
+        const nombre = C.str(f.cliente_nombre)
+        if (!nombre) throw { message: 'Elige un cliente o escribe el nombre del nuevo', response: { message: 'Elige un cliente o escribe el nombre del nuevo' } }
+        clienteId = c.collection('clientes').create({ nombre: nombre, telefono: C.str(f.cliente_telefono) }).id
+      }
+      datos.cliente = clienteId
+      datos.estado = 'cotizacion'
+      datos.folio = C.siguienteFolio(c, L.hoyLocal(Date.now()).slice(0, 4))
+      creado = c.collection('eventos').create(datos).id
+    } catch (e) {
+      error = L.mensajeError(e)
+    }
+    if (creado) redirect('/eventos/' + creado, { message: 'Evento creado. Agrega los conceptos de la cotización.' })   // fuera del try
+  }
+</script>
+<p><a href="/eventos">‹ Eventos</a></p>
+<h1>Nuevo evento</h1>
+<% if (error) { %><p class="error"><%= error %></p><% } %>
+<form method="post" class="tarjeta cols">
+  <h2>Cliente</h2>
+  <label>Cliente existente
+    <select name="cliente">
+      <option value="">— Nuevo cliente —</option>
+      <% clientes.forEach(cl => { %><option value="<%= cl.id %>"<%= form && form.cliente === cl.id ? ' selected' : '' %>><%= cl.nombre %><%= cl.telefono ? ' · ' + cl.telefono : '' %></option><% }) %>
+    </select>
+  </label>
+  <label>Nombre del cliente nuevo <input type="text" name="cliente_nombre" value="<%= form ? C.str(form.cliente_nombre) : '' %>" /></label>
+  <label>Teléfono del cliente nuevo <input type="text" name="cliente_telefono" value="<%= form ? C.str(form.cliente_telefono) : '' %>" /></label>
+  <h2>Evento</h2>
+  <% C.CAMPOS_EVENTO.forEach(campo => { %>
+    <%- include('campo.ejs', { c: campo, valor: form ? form[campo.n] : campo.def }) %>
+  <% }) %>
+  <div class="fila"><button type="submit">Crear cotización</button></div>
+</form>

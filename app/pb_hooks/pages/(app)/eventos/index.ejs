@@ -1,0 +1,45 @@
+<script server>
+  const L = resolve('lib')
+  const C = resolve('crud')
+  const c = pb({ request })
+  const estado = ['cotizacion', 'apartado', 'realizado', 'cancelado'].indexOf(params.estado) >= 0 ? params.estado : ''
+  const q = C.limpiarBusqueda(params.q)
+  let filas = []
+  let saldos = {}
+  let error = ''
+  try {
+    const filtros = []
+    if (estado) filtros.push('estado = "' + estado + '"')
+    if (q) filtros.push('(' + C.filtroBusqueda(['folio', 'titulo', 'tema', 'cliente.nombre'], q) + ')')
+    const o = { sort: '-montaje_inicio', expand: 'cliente' }
+    if (filtros.length) o.filter = filtros.join(' && ')
+    filas = c.collection('eventos').getList(1, 60, o).items
+    L.porEventos(c, 'v_saldos_evento', 'id', filas.map(e => e.id)).forEach(s => { saldos[s.id] = s })
+  } catch (e) {
+    error = L.mensajeError(e)
+  }
+</script>
+<h1>Eventos</h1>
+<% if (error) { %><p class="error"><%= error %></p><% } %>
+<form method="get" class="filtro">
+  <input type="search" name="q" value="<%= q %>" placeholder="Folio, título, tema o cliente" />
+  <select name="estado">
+    <option value="">Todos</option>
+    <% C.ESTADOS.forEach(o => { %><option value="<%= o[0] %>"<%= estado === o[0] ? ' selected' : '' %>><%= o[1] %></option><% }) %>
+  </select>
+  <button type="submit">Filtrar</button>
+  <a class="boton der" href="/eventos/nuevo">+ Nuevo evento</a>
+</form>
+<section class="tarjeta">
+  <ul class="lista">
+    <% filas.forEach(e => { const s = saldos[e.id]; const cl = e.expand && e.expand.cliente %>
+    <li>
+      <a href="/eventos/<%= e.id %>"><b><%= L.etiquetaDia(L.fechaLocal(e.montaje_inicio)) %> · <%= L.horaLocal(e.montaje_inicio) %></b></a>
+      <span class="etiqueta estado-<%= e.estado %>"><%= e.estado %></span>
+      <%= e.titulo || e.tema || '' %> <small><%= e.folio %> · <%= cl ? cl.nombre : '' %></small>
+      <% if (s) { %><span class="der"><%= L.mxn(s.total) %><% if (e.estado !== 'cancelado' && s.total - s.pagado > 0) { %> <small class="error">debe <%= L.mxn(s.total - s.pagado) %></small><% } %></span><% } %>
+    </li>
+    <% }) %>
+    <% if (!filas.length && !error) { %><li class="vacio">No hay eventos con ese filtro</li><% } %>
+  </ul>
+</section>

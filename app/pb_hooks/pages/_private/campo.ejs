@@ -1,0 +1,21 @@
+<%# Un campo de formulario. Variables: c (definición), valor, solo (solo lectura) %>
+<% const v = (valor === undefined || valor === null) ? '' : valor %>
+<% const dis = typeof solo !== 'undefined' && solo ? ' disabled' : '' %>
+<% if (c.tipo === 'bool') { %>
+<label class="check"><input type="checkbox" name="<%= c.n %>" value="1"<%= v ? ' checked' : '' %><%= dis %> /> <%= c.label %></label>
+<% } else { %>
+<label><%= c.label %><%= c.req ? ' *' : '' %>
+<% if (c.tipo === 'select') { %>
+  <select name="<%= c.n %>"<%= c.req ? ' required' : '' %><%= dis %>>
+    <% if (!c.req) { %><option value="">—</option><% } %>
+    <% c.opts.forEach(o => { %><option value="<%= o[0] %>"<%= String(v) === String(o[0]) ? ' selected' : '' %>><%= o[1] %></option><% }) %>
+  </select>
+<% } else if (c.tipo === 'number') { %>
+  <input type="number" name="<%= c.n %>" value="<%= v %>" step="any"<%= dis %> />
+<% } else if (c.tipo === 'date') { %>
+  <input type="datetime-local" name="<%= c.n %>" value="<%= v %>"<%= c.req ? ' required' : '' %><%= dis %> />
+<% } else { %>
+  <input type="text" name="<%= c.n %>" value="<%= v %>"<%= c.req ? ' required' : '' %><%= dis %> />
+<% } %>
+</label>
+<% } %>

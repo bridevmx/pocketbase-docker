@@ -29,7 +29,9 @@ Datos en el volumen `/pb_data`. App en `/`, panel admin en `/_/`.
 2. En `app/`: `npm install`, y corre PocketBase con `pb_hooks/` al lado de `pb_data/`.
 3. Crea usuarios en `users` con `nombre` y `rol`.
 
-Páginas: `/calendario`, `/eventos/:id`, `/carga` (tiempo real con SDK de PocketBase + nanostores por CDN;
+Páginas: `/calendario`, `/eventos` (lista, `/eventos/nuevo`, `/eventos/:id` con conceptos, estructuras, pagos, edición y estados),
+`/inventario` (existencias y movimientos), `/catalogo/{clientes,servicios,insumos,activos}` (alta, edición y recetas de servicio; el catálogo
+solo lo edita el rol `dueno`), `/carga` (tiempo real con SDK de PocketBase + nanostores por CDN;
 fija las versiones del CDN en `app/pb_hooks/pages/assets/carga.js`). Zona horaria fija UTC-6 en `_private/lib.js`.
 
 ## Pendiente
