@@ -14,7 +14,7 @@
           monto: Number(f.monto),
           metodo: f.metodo,
           fecha: new Date().toISOString().replace('T', ' '),
-          nota: f.nota || ''
+          nota: String(f.nota || '')
         })
         listo = 'Pago registrado'
       } else if (f.accion === 'apartar') {

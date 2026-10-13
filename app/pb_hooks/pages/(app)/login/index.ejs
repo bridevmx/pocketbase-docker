@@ -3,10 +3,11 @@
   let identidad = ''
   if (request.method === 'POST') {
     const f = body()
-    identidad = f.identity || ''
+    identidad = String(f.identity || '')
     let ok = false
     try {
-      signInWithPassword(f.identity, f.password)
+      // body() convierte valores numéricos a número; PocketBase exige texto
+      signInWithPassword(String(f.identity), String(f.password))
       ok = true
     } catch (e) {
       error = 'Correo o contraseña incorrectos'
