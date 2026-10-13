@@ -18,7 +18,7 @@ docker run -d -p 8090:8090 -v pb_data:/pb_data \
   pinateria
 ```
 Al iniciar: crea/actualiza el superusuario, levanta PocketBase con los hooks, crea el esquema si no existe
-y el primer usuario `dueno` (si defines `OWNER_*`). Es idempotente: reiniciar no repite nada.
+y el primer usuario `dueno` (con `OWNER_*`, o con `PB_EMAIL`/`PB_PASS` si no los defines; con ese correo se entra a la app). Es idempotente: reiniciar no repite nada.
 Variables: `PB_EMAIL` y `PB_PASS` (obligatorias, clave de 10+ caracteres); opcionales `OWNER_EMAIL`,
 `OWNER_PASSWORD`, `OWNER_NAME`, `PB_ENCRYPTION_KEY` (32 caracteres), `PB_PORT`, `PB_ORIGINS`, `TZ`, y `PB_VERSION` (build arg).
 Datos en el volumen `/pb_data`. App en `/`, panel admin en `/_/`.

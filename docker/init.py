@@ -37,7 +37,9 @@ if call("GET", "/api/collections/eventos", token=token)[0] == 404:
 else:
     print("init: esquema ya existe")
 
-email, pw = os.environ.get("OWNER_EMAIL"), os.environ.get("OWNER_PASSWORD")
+# Si no defines OWNER_*, el dueno usa las mismas credenciales que el superusuario.
+email = os.environ.get("OWNER_EMAIL") or os.environ["PB_EMAIL"]
+pw = os.environ.get("OWNER_PASSWORD") or os.environ["PB_PASS"]
 if email and pw:
     s, r = call("GET", f"/api/collections/users/records?filter=email%3D%22{email}%22&perPage=1", token=token)
     if s == 200 and not r.get("items"):
