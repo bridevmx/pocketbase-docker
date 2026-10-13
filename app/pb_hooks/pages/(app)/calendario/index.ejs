@@ -1,0 +1,38 @@
+<script server>
+  const L = resolve('lib')
+  const ahora = Date.now()
+  const pedido = params.mes
+  const ym = L.mesValido(pedido) ? pedido : L.hoyLocal(ahora).slice(0, 7)
+  let cal = null
+  let error = ''
+  try {
+    cal = L.consultaCalendario(pb({ request }), ym, ahora)
+  } catch (e) {
+    error = L.mensajeError(e)
+  }
+  const DIAS = ['lun', 'mar', 'mié', 'jue', 'vie', 'sáb', 'dom']
+</script>
+<% if (error) { %><p class="error"><%= error %></p><% } else { %>
+<div class="mes-cabecera">
+  <a class="boton" href="/calendario?mes=<%= cal.rejilla.anterior %>">‹</a>
+  <h1><%= cal.rejilla.nombre %></h1>
+  <a class="boton" href="/calendario?mes=<%= cal.rejilla.siguiente %>">›</a>
+</div>
+<p class="sub"><%= cal.total %> evento<%= cal.total === 1 ? '' : 's' %> este mes</p>
+<div class="rejilla">
+  <% DIAS.forEach(d => { %><div class="dia-nombre"><%= d %></div><% }) %>
+  <% cal.rejilla.semanas.forEach(sem => { sem.forEach(c => { %>
+  <div class="celda<%= c.enMes ? '' : ' fuera' %><%= c.fecha === cal.hoy ? ' hoy' : '' %>">
+    <span class="num"><%= c.dia %></span>
+    <% c.eventos.forEach(ev => { %>
+    <a class="ev estado-<%= ev.estado %><%= ev.choque ? ' choque' : '' %>" href="/eventos/<%= ev.id %>" title="<%= ev.cliente %>">
+      <b><%= ev.hora %></b> <%= ev.titulo || ev.cliente %>
+      <% if (ev.choque) { %><i>⚠ choque</i><% } %>
+      <% if (ev.debe > 0) { %><i>debe <%= L.mxn(ev.debe) %></i><% } %>
+    </a>
+    <% }) %>
+  </div>
+  <% }) }) %>
+</div>
+<p class="leyenda"><span class="punto estado-cotizacion"></span>cotización <span class="punto estado-apartado"></span>apartado <span class="punto estado-realizado"></span>realizado</p>
+<% } %>

@@ -1,0 +1,12 @@
+<script server>
+  const L = resolve('lib')
+  const dias = Math.max(1, Math.min(31, parseInt(params.dias, 10) || 7))
+  let carga = null
+  let error = ''
+  try {
+    carga = L.consultaCarga(pb({ request }), Date.now(), dias)
+  } catch (e) {
+    error = L.mensajeError(e)
+  }
+</script>
+<% if (error) { %><p class="error"><%= error %></p><% } else { %><%- include('carga-lista.ejs', { carga, dias }) %><% } %>

@@ -1,0 +1,25 @@
+<script server>
+  let error = ''
+  let identidad = ''
+  if (request.method === 'POST') {
+    const f = body()
+    identidad = f.identity || ''
+    let ok = false
+    try {
+      signInWithPassword(f.identity, f.password)
+      ok = true
+    } catch (e) {
+      error = 'Correo o contraseña incorrectos'
+    }
+    if (ok) redirect('/calendario')   // fuera del try: redirect corta la ejecución
+  }
+</script>
+<section class="tarjeta login">
+  <h1>Ingresar</h1>
+  <% if (error) { %><p class="error"><%= error %></p><% } %>
+  <form method="post">
+    <label>Correo <input name="identity" type="email" value="<%= identidad %>" required autofocus /></label>
+    <label>Contraseña <input name="password" type="password" required /></label>
+    <button type="submit">Entrar</button>
+  </form>
+</section>

@@ -1,0 +1,95 @@
+<script server>
+  const L = resolve('lib')
+  const id = params.id
+  const cliente = pb({ request })
+  let error = ''
+  let listo = ''
+  if (request.method === 'POST') {
+    const f = body()
+    try {
+      if (f.accion === 'pago') {
+        cliente.collection('pagos').create({
+          evento: id,
+          tipo: f.tipo,
+          monto: Number(f.monto),
+          metodo: f.metodo,
+          fecha: new Date().toISOString().replace('T', ' '),
+          nota: f.nota || ''
+        })
+        listo = 'Pago registrado'
+      } else if (f.accion === 'apartar') {
+        cliente.collection('eventos').update(id, { estado: 'apartado' })
+        listo = 'Evento apartado'
+      }
+    } catch (e) {
+      error = L.mensajeError(e)
+    }
+    if (listo) redirect('/eventos/' + id, { message: listo })   // fuera del try
+  }
+  let d = null
+  try {
+    d = L.consultaEvento(cliente, id)
+  } catch (e) {
+    error = error || L.mensajeError(e)
+  }
+</script>
+<p><a href="/calendario">‹ Calendario</a></p>
+<% if (error) { %><p class="error"><%= error %></p><% } %>
+<% if (d) { const ev = d.evento %>
+<h1><%= ev.titulo || ev.tema || ev.folio %> <span class="etiqueta estado-<%= ev.estado %>"><%= ev.estado %></span></h1>
+<p class="sub"><%= ev.folio %> · <%= d.cliente ? d.cliente.nombre : '' %> · <%= d.fecha %> · montaje <%= d.montaje %> – desmontaje <%= d.desmontaje %><% if (ev.direccion) { %> · <%= ev.direccion %><% } %></p>
+
+<section class="tarjeta">
+  <h2>Cuentas</h2>
+  <dl class="cuentas">
+    <dt>Total</dt><dd><%= L.mxn(d.saldo.total) %></dd>
+    <dt>Pagado</dt><dd><%= L.mxn(d.saldo.pagado) %></dd>
+    <dt>Pendiente</dt><dd><b><%= L.mxn(d.pendiente) %></b></dd>
+    <dt>Anticipo (<%= ev.porcentaje_anticipo || 0 %>%)</dt><dd><%= L.mxn(d.anticipoRequerido) %><% if (d.faltaAnticipo > 0) { %> · <span class="error">faltan <%= L.mxn(d.faltaAnticipo) %></span><% } %></dd>
+    <% if (d.saldo.deposito_retenido > 0) { %><dt>Depósito en garantía</dt><dd><%= L.mxn(d.saldo.deposito_retenido) %></dd><% } %>
+  </dl>
+  <% if (ev.estado === 'cotizacion') { %>
+  <form method="post"><input type="hidden" name="accion" value="apartar" /><button type="submit">Apartar fecha</button></form>
+  <% } %>
+</section>
+
+<section class="tarjeta">
+  <h2>Conceptos</h2>
+  <ul class="lista">
+    <% d.lineas.forEach(l => { %>
+    <li><%= l.cantidad %> × <%= l.descripcion %> <span class="der"><%= L.mxn(l.importe) %><%= l.opcional ? ' (opcional)' : '' %></span></li>
+    <% }) %>
+  </ul>
+</section>
+
+<% if (d.reservas.length) { %>
+<section class="tarjeta">
+  <h2>Estructuras reservadas</h2>
+  <ul class="lista">
+    <% d.reservas.forEach(r => { %>
+    <li class="<%= r.choque ? 'choque' : '' %>"><%= r.cantidad %> × <%= r.nombre %><% if (r.choque) { %> <span class="error">solo hay <%= r.libres %> libres</span><% } %></li>
+    <% }) %>
+  </ul>
+</section>
+<% } %>
+
+<section class="tarjeta">
+  <h2>Pagos</h2>
+  <ul class="lista">
+    <% d.pagos.forEach(p => { %>
+    <li><%= p.tipo.replace('_', ' ') %> · <%= p.metodo || '' %> <span class="der"><%= L.mxn(p.monto) %></span></li>
+    <% }) %>
+    <% if (!d.pagos.length) { %><li class="vacio">Sin pagos todavía</li><% } %>
+  </ul>
+  <form method="post" class="fila">
+    <input type="hidden" name="accion" value="pago" />
+    <select name="tipo">
+      <option value="anticipo">Anticipo</option><option value="abono">Abono</option><option value="liquidacion">Liquidación</option>
+      <option value="deposito_garantia">Depósito en garantía</option><option value="devolucion_deposito">Devolución de depósito</option><option value="reembolso">Reembolso</option>
+    </select>
+    <input name="monto" type="number" min="1" step="0.01" placeholder="Monto" required />
+    <select name="metodo"><option value="efectivo">Efectivo</option><option value="transferencia">Transferencia</option><option value="tarjeta">Tarjeta</option><option value="otro">Otro</option></select>
+    <button type="submit">Registrar</button>
+  </form>
+</section>
+<% } %>

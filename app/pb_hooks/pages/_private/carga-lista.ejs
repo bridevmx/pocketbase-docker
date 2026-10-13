@@ -1,0 +1,27 @@
+<% if (carga.hayFaltantes) { %>
+<section class="tarjeta alerta">
+  <h2>Hay que comprar</h2>
+  <ul class="lista">
+    <% carga.totales.filter(t => t.faltante > 0).forEach(t => { %>
+    <li><b><%= t.nombre %></b>: faltan <%= t.faltanteTexto %> <small>(necesitas <%= t.necesaria %>, hay <%= t.stock %>)</small></li>
+    <% }) %>
+  </ul>
+</section>
+<% } %>
+<% if (carga.eventos.length === 0) { %>
+<p class="vacio">No hay eventos apartados en los próximos <%= dias %> día<%= dias === 1 ? '' : 's' %>.</p>
+<% } %>
+<% carga.eventos.forEach(ev => { %>
+<section class="tarjeta<%= ev.choque ? ' choque' : '' %>" data-evento="<%= ev.id %>">
+  <h2><a href="/eventos/<%= ev.id %>"><%= ev.fecha %> · <%= ev.hora %></a> <small><%= ev.titulo || ev.cliente %></small></h2>
+  <% if (ev.choque) { %><p class="error">⚠ Una estructura está reservada de más en ese horario.</p><% } %>
+  <ul class="checks">
+    <% ev.estructuras.forEach(it => { %>
+    <li class="<%= it.choque ? 'choque' : '' %>"><label><input type="checkbox" data-clave="<%= it.key %>" /> <b><%= it.nombre %></b> <span><%= it.texto %></span></label></li>
+    <% }) %>
+    <% ev.insumos.forEach(it => { %>
+    <li><label><input type="checkbox" data-clave="<%= it.key %>" /> <b><%= it.nombre %></b> <span><%= it.texto %></span></label></li>
+    <% }) %>
+  </ul>
+</section>
+<% }) %>

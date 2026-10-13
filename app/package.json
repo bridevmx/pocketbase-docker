@@ -1,0 +1,12 @@
+{
+  "name": "pinateria-pocketpages",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Calendario, lista de carga y cobros para decoración con globos, piñatas y mesa de dulces",
+  "dependencies": {
+    "pocketpages": ">=0.22.3",
+    "pocketpages-plugin-auth": ">=0.2.2",
+    "pocketpages-plugin-ejs": "*",
+    "pocketpages-plugin-js-sdk": ">=0.2.0"
+  }
+}

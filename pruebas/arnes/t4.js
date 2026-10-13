@@ -1,0 +1,16 @@
+const { pedir, http } = require('./run.js')
+const ids = require('../scripts/seed_ids.json')
+const txt = (h) => h.replace(/<[^>]+>/g, ' ').replace(/&#39;/g, "'").replace(/\s+/g, ' ').trim()
+const err = (h) => (h.match(/<p class="error">([^<]*)</g) || []).join(' | ')
+pedir('POST', '/login', { identity: 'asist@local.test', password: 'Prueba12345' })
+let r = pedir('POST', '/eventos/' + ids.e4, { accion: 'apartar' }); console.log('apartar sin anticipo:', r.status, r.location || '', err(r.html || ''))
+r = pedir('POST', '/eventos/' + ids.e4, { accion: 'pago', tipo: 'anticipo', monto: '0', metodo: 'efectivo' }); console.log('pago 0:', r.status, err(r.html || ''))
+r = pedir('POST', '/eventos/' + ids.e4, { accion: 'pago', tipo: 'abono', monto: '100', metodo: 'transferencia' }); console.log('pago 100:', r.status, r.location, r.flash)
+r = pedir('GET', '/eventos/' + ids.e4); console.log(txt(r.html).match(/Pagos.*?Anticipo Abono/)[0])
+r = pedir('GET', '/eventos/abc'); console.log('id malo:', r.status, err(r.html))
+r = pedir('GET', '/eventos/zzzzzzzzzzzzzzz'); console.log('id inexistente:', r.status, err(r.html))
+r = pedir('GET', '/salir'); console.log('salir:', r.status, r.location, r.flash)
+r = pedir('GET', '/carga'); console.log('tras salir /carga:', r.status, r.location)
+// limpiar pago de prueba
+const sup = http('POST', '/api/collections/_superusers/auth-with-password', null, { identity: 'prueba@local.test', password: 'PruebaPB12345' }).token
+for (const p of http('GET', '/api/collections/pagos/records?filter=' + encodeURIComponent('evento="' + ids.e4 + '"'), sup).items) http('DELETE', '/api/collections/pagos/records/' + p.id, sup)

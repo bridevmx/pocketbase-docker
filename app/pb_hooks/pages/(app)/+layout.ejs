@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="es-MX">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Decoraciones · Agenda</title>
+  <link rel="stylesheet" href="/assets/app.css" />
+</head>
+<body>
+  <% if (auth) { %>
+  <header class="barra">
+    <nav>
+      <a href="/calendario">Calendario</a>
+      <a href="/carga">Lista de carga</a>
+    </nav>
+    <span class="usuario"><%= auth.get('nombre') || auth.get('email') %> · <a href="/salir">Salir</a></span>
+  </header>
+  <% } %>
+  <% if (params.__flash) { %><p class="aviso"><%= params.__flash %></p><% } %>
+  <main><%- slot %></main>
+</body>
+</html>
