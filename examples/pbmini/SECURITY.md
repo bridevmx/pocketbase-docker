@@ -46,3 +46,23 @@ vinculación OAuth2): ninguno es de routing/archivos; los de 2026 están corregi
 - **Rate limit** (config nativa de PocketBase) y `bodyLimit` bajo por defecto en rutas custom.
 - **Despliegue**: `pb_public` sin symlinks ni dotfiles (comprobar en CI), `pb_hooks` read-only, `ENCRYPTION` activado, contenedor sin privilegios.
 - **Pruebas**: `security/run.sh` debe pasar en CI para cada versión de PocketBase.
+
+## Estado de implementación en `pbmini` (verificado con `security/run-mini.sh`, 44 chequeos)
+| Control | Implementación |
+|---|---|
+| Deny by default | `auth: "public"\|"user"\|"superuser"` obligatorio; si falta, el registro aborta |
+| Registro fail-closed | Se valida todo antes del primer `routerAdd`; si algo falla, `$os.exit(1)` (`PBMINI_ON_ERROR=warn` para dev). **PocketBase por sí solo sigue vivo tras un error de hook** |
+| Params validados | Todo parámetro rechaza `/ \ % NUL ..` y dotfiles en comodines; tipos `id`, `slug`, `int`, `uuid` o RegExp; inválido => 404 |
+| Archivos | `c.file(dir, rel)`: sin symlinks, dotfiles, directorios ni traversal (`readDir` + tipo estricto) |
+| XSS | HTML solo por `c.view` (autoescape); `c.unsafeHtml` explícito; `c.esc` |
+| Redirects | `c.redirect` solo `"/ruta"` (rechaza `//`, `/\`, esquemas, control) |
+| Cabeceras | CSP, Referrer-Policy, nosniff, X-Frame-Options, Permissions-Policy, CORP en rutas custom |
+| Errores | Excepciones => 500 genérico; detalle solo en logs |
+| Abuso | `bodyLimit` 1 MiB por defecto (configurable); rate limit 120/min/IP/ruta (aprox., en `$app.store()`; usa `rateLimit:false` o ajusta) |
+| Rutas reservadas | `/api/` y `/_/` requieren `allowSystemPrefix`; `/` y `prefijo/` requieren `prefix:true` |
+
+### Límites conocidos (no resueltos por pbmini)
+- CORS `*` global de PocketBase y el fallback `index.html` de `publicDir` (usar `--indexFallback=false` si no es una SPA).
+- `publicDir`/`$apis.static` nativos siguen sirviendo symlinks y dotfiles: en `pb_public` usa `c.file` o audita con CI.
+- El rate limit no es atómico ni persistente; para producción usa también el limitador nativo de PocketBase o el proxy.
+- El código de `pb_hooks` tiene acceso total al sistema: revisar dependencias, montar de solo lectura.
