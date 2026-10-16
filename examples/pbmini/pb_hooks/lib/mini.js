@@ -238,6 +238,24 @@ function ctx(e, route, params, q, b, state) {
       const files = [`${__hooks}/views/${layout || "layout"}.html`, `${__hooks}/views/${name}.html`];
       return reply(200, "text/html; charset=utf-8", $template.loadFiles(...files).render(data || {})); // autoescape
     },
+    // Página por archivos: layout más cercano + parciales + HTML de la página (autoescape). Expone .Q (query), .P (params), .User.
+    page(data) {
+      const pg = route.page;
+      if (!pg || !pg.html) throw new Error("pbmini: esta ruta no tiene plantilla .html");
+      const rd = (f) => toString($os.readFile(f));
+      const body = rd(pg.html), hasDef = /\{\{-?\s*define\s/.test(body);
+      let tpl;
+      // loadFiles parsea cada archivo por separado (permite que la página redefina bloques del layout);
+      // en una sola cadena Go rechaza redefinir un {{block}} con contenido por defecto.
+      if (!pg.layout) {
+        if (hasDef) throw new Error("pbmini: la página usa {{define}} pero no hay _layout.html");
+        tpl = $template.loadFiles(pg.html, ...pg.partials);
+      } else if (hasDef) tpl = $template.loadFiles(pg.layout, ...pg.partials, pg.html);
+      else tpl = $template.loadString(rd(pg.layout) + pg.partials.map(rd).join("") + '{{define "body"}}' + body + "{{end}}"); // HTML plano => cuerpo (el bloque body del layout debe estar vacío)
+      const d = Object.assign({}, data || {});
+      d.Q = Object.assign({}, q); d.P = Object.assign({}, params); d.User = c.auth ? c.auth.publicExport() : null;
+      return reply(200, "text/html; charset=utf-8", tpl.render(d));
+    },
     unsafeHtml: (s, code) => reply(code || 200, "text/html; charset=utf-8", String(s)),
     redirect(url, code) {
       if (!safeRedirectTarget(url)) throw new Error("pbmini: redirect no permitido (solo rutas relativas)");
@@ -284,7 +302,12 @@ function safeFileTarget(base, rel) {
 
 // ---- carga perezosa por runtime + registro atómico fail-closed ---------------
 let loaded = false;
-function load() { if (loaded) return; loaded = true; require(`${__hooks}/routes.js`)(module.exports); }
+const exists = (f) => { try { $os.stat(f); return true; } catch (_) { return false; } };
+function load() {
+  if (loaded) return; loaded = true;
+  if (exists(`${__hooks}/routes.js`)) require(`${__hooks}/routes.js`)(module.exports);
+  if (exists(`${__hooks}/pages`)) require(`${__hooks}/lib/pages.js`)(module.exports);
+}
 function register() {
   try {
     load();
@@ -336,9 +359,17 @@ function dispatch(e) {
   }
 }
 
-function route(method, pattern, opts, handler) {
+const OPT_KEYS = ["auth", "params", "query", "body", "queries", "cache", "rateLimit", "bodyLimit", "unknownQuery", "allowSystemPrefix", "prefix"];
+function route(method, pattern, opts, handler, internal) {
   if (typeof opts === "function") { handler = opts; opts = {}; }
   const fail = (m) => { throw new Error(`pbmini: ${method} ${pattern}: ${m}`); };
+  if (opts) for (const k in opts) if (OPT_KEYS.indexOf(k) < 0) fail(`opción desconocida "${k}" (¿error de tipeo? una opción ignorada puede desactivar un control)`);
+  if (opts && opts.unknownQuery !== undefined && opts.unknownQuery !== "ignore") fail('unknownQuery solo admite "ignore"');
+  if (opts && opts.bodyLimit !== undefined && !(Number.isInteger(opts.bodyLimit) && opts.bodyLimit >= 1 && opts.bodyLimit <= 32 * 1024 * 1024)) fail("bodyLimit debe ser entero 1..33554432");
+  if (opts && opts.rateLimit !== undefined && opts.rateLimit !== false) {
+    const r = opts.rateLimit;
+    if (!r || typeof r !== "object" || (r.max !== undefined && !(Number.isInteger(r.max) && r.max >= 1)) || (r.windowSec !== undefined && !(Number.isInteger(r.windowSec) && r.windowSec >= 1 && r.windowSec <= 86400))) fail("rateLimit inválido: false o {max, windowSec}");
+  }
   if (!METHODS[method]) fail("método no soportado");
   if (typeof pattern !== "string" || pattern.charAt(0) !== "/") fail("el patrón debe empezar con '/'");
   if (!opts || !AUTH[opts.auth]) fail("falta `auth: 'public' | 'user' | 'superuser'` (deny by default)");
@@ -381,7 +412,7 @@ function route(method, pattern, opts, handler) {
   }
   const key = method + " " + pattern;
   if (table[key]) fail("ruta duplicada");
-  table[key] = { key, method, pattern, auth: opts.auth, opts, handler, params, paramTypes, query, body, queries };
+  table[key] = { key, method, pattern, auth: opts.auth, opts, handler, params, paramTypes, query, body, queries, page: internal && internal.page };
 }
 
 const mk = (m) => (p, o, h) => route(m, p, o, h);

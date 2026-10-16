@@ -12,13 +12,13 @@ def call(method, path, body=None, tok=None):
 su = call("POST", "/api/collections/_superusers/auth-with-password", {"identity": "su@x.io", "password": "Sup3rS3cret!!"})["token"]
 txt = lambda n, **k: dict(name=n, type="text", **k)
 call("POST", "/api/collections", dict(name="posts", type="base", listRule="published = true", viewRule="published = true",
-     fields=[txt("title"), txt("secret", hidden=True), dict(name="published", type="bool"), dict(name="created", type="autodate", onCreate=True)]), su)
+     fields=[txt("title"), txt("slug"), txt("secret", hidden=True), dict(name="published", type="bool"), dict(name="created", type="autodate", onCreate=True)]), su)
 call("POST", "/api/collections", dict(name="vault", type="base", listRule=None, viewRule=None, fields=[txt("note")]), su)
 call("POST", "/api/collections", dict(name="mine", type="base", listRule="owner = @request.auth.id", viewRule="owner = @request.auth.id",
      fields=[txt("owner"), txt("doc"), dict(name="created", type="autodate", onCreate=True)]), su)
 ids = {}
-for t, s, pub in (("hello", "S-1", True), ("world", "S-2", True), ("private-draft", "TOPSECRET-DRAFT", False)):
-    ids[t] = call("POST", "/api/collections/posts/records", dict(title=t, secret=s, published=pub), su)["id"]
+for t, sl, s, pub in (("hello", "hello", "S-1", True), ("world", "world", "S-2", True), ("private-draft", "private-draft", "TOPSECRET-DRAFT", False), ("<script>alert(1)</script>", "xss-post", "S-3", True)):
+    ids[t] = call("POST", "/api/collections/posts/records", dict(title=t, slug=sl, secret=s, published=pub), su)["id"]
 call("POST", "/api/collections/vault/records", dict(note="VAULT-NOTE"), su)
 tok = {}
 for u in ("a", "b"):

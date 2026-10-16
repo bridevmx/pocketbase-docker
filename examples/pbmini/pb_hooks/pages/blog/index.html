@@ -1,0 +1,6 @@
+{{define "title"}}Blog{{end}}
+{{define "body"}}
+<h1>Blog</h1>
+{{range .posts}}<article><h2><a href="/blog/{{.slug}}">{{.title}}</a></h2></article>{{else}}<p>Sin entradas.</p>{{end}}
+<p>{{if .prev}}<a href="?page={{.prev}}">« Anterior</a>{{end}} {{if .next}}<a href="?page={{.next}}">Siguiente »</a>{{end}}</p>
+{{end}}

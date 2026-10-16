@@ -5,10 +5,10 @@ set -u
 PB=${1:?ruta al binario pocketbase}; HERE=$(cd "$(dirname "$0")" && pwd); ROOT=$(dirname "$HERE"); fail=0; npass=0
 W=$(mktemp -d); PORT=8095; B=http://127.0.0.1:$PORT; PID=
 stop(){ [[ -n $PID ]] && kill $PID 2>/dev/null && wait $PID 2>/dev/null; PID=; }
-trap 'stop; rm -rf "$W" "$W.bad.js"' EXIT
-setup(){ # $1 = routes.js ; $2 = "data" para crear colecciones
+trap 'stop; rm -rf "$W" "$W.bad.js" "$W.pages" "$W.env.sh"' EXIT
+setup(){ # $1 = routes.js ; $2 = "data" para crear colecciones ; $3 = directorio pages/ opcional
   stop; rm -rf "$W"/*; mkdir -p "$W/outside" "$W/pb_data" "$W/pb_public/sub" "$W/pb_hooks"
-  cp -r "$ROOT/pb_hooks/lib" "$ROOT/pb_hooks/views" "$W/pb_hooks/"; cp "$ROOT/pb_hooks/main.pb.js" "$W/pb_hooks/"; cp "$1" "$W/pb_hooks/routes.js"
+  cp -r "$ROOT/pb_hooks/lib" "$ROOT/pb_hooks/views" "$W/pb_hooks/"; cp "$ROOT/pb_hooks/main.pb.js" "$W/pb_hooks/"; cp "$1" "$W/pb_hooks/routes.js"; [[ -n ${3:-} ]] && cp -a "$3" "$W/pb_hooks/pages"
   echo TOP-SECRET-OUTSIDE > "$W/outside/secret.txt"; echo ENV=hunter2 > "$W/pb_public/.env"; echo pub > "$W/pb_public/pub.txt"; echo sub > "$W/pb_public/sub/a.txt"
   echo "<h1>idx</h1>" > "$W/pb_public/index.html"; ln -s "$W/outside/secret.txt" "$W/pb_public/link.txt"; ln -s "$W/outside" "$W/pb_public/dirlink"
   "$PB" superuser upsert su@x.io 'Sup3rS3cret!!' --dir="$W/pb_data" >/dev/null 2>&1
@@ -33,11 +33,11 @@ body(){ curl -sg -m8 "$@"; }
 eq(){ [[ $1 == "$2" ]] && ok "$3" || ko "$3 (esperado: $2 | obtuvo: $1)"; }
 ne(){ [[ $1 != "$2" ]] && ok "$3" || ko "$3 (iguales: $1)"; }
 
-echo "################ A. archivos, rutas, params, redirect, errores, límites"; setup "$HERE/mini/routes.js" data
+echo "################ A. archivos, rutas, params, redirect, errores, límites"; setup "$HERE/mini/routes.js" data "$HERE/mini/pages"
 chk 'pub' - 200 /assets/pub.txt; chk sub - 200 /assets/sub/a.txt
 for p in /assets/.env /assets/link.txt /assets/dirlink/secret.txt /assets/sub /assets/..%2foutside%2fsecret.txt /assets/%2e%2e/outside/secret.txt /assets/sub/..%2f..%2foutside%2fsecret.txt '/assets/..\outside\secret.txt' '/assets/pub.txt%00.png' /assets/%252e%252e%252foutside/secret.txt /assets/sub/.%2e/pub.txt; do chk - 'TOP-SECRET\|hunter2' 404 "$p"; done
 chk - - 200 /u/abcdefghijklmno; chk - - 404 /u/abc; chk - - 404 /u/%2e%2e; chk - - 404 '/u/ABCDEFGHIJKLMNO'
-chk - - 200 /blog/hola-mundo; chk - - 404 /blog/Hola; chk - - 404 '/blog/a%2fb'
+chk - - 200 /slug/hola-mundo; chk - - 404 /slug/Hola; chk - - 404 '/slug/a%2fb'
 chk - - 401 /me; chk - - 401 /admin/; chk - - 403 /admin/ -H "Authorization: $TOKA"
 chk - '<script>' 200 '/hi?name=%3Cscript%3Ealert(1)%3C/script%3E'; chk '&lt;script' - 200 '/hi?name=%3Cscript%3E'
 for to in https://evil.example //evil.example '%2f%5cevil.example' 'javascript:alert(1)'; do chk - - 500 "/go?to=$to"; done
@@ -58,7 +58,7 @@ chk - - 414 "/search?page=$(printf '1%.0s' $(seq 1 2100))"
 chk '"keys":\["id"\]' - 200 '/track?id=abcdefghijklmno&utm_source=x&fbclid=y'      # unknownQuery:"ignore"
 chk - - 400 '/track?id=abcdefghijklmno&utm_source=%zz'; chk - - 400 '/track?id=bad'; chk - - 400 '/track?id=abcdefghijklmno&id=abcdefghijklmno'
 chk - - 400 '/hi?name=a&name=b'; chk - - 400 "/hi?name=$(printf 'A%.0s' $(seq 1 60))"; chk - - 400 '/hi?evil=1'
-chk - - 400 '/blog/hola?x=1'                                                          # rutas sin esquema: query no vacía rechazada
+chk - - 400 '/slug/hola?x=1'                                                          # rutas sin esquema: query no vacía rechazada
 
 echo "################ C. BODY (esquema, mass-assignment, pollution)"
 J=(-X POST -H 'Content-Type: application/json')
@@ -114,6 +114,25 @@ PY
 n=$(body "$B/storelen" | sed 's/[^0-9]//g'); [[ $n -le 505 ]] && ok "store acotado tras 900 claves ($n <= 500+margen)" || ko "store creció a $n"
 eq "$(body "$B/pub/$ID1")" "$b1" "la entrada legítima sigue cacheada tras la inundación"
 
+echo "################ H. PÁGINAS POR ARCHIVOS (estilo PHP)"
+chk 'ROOT-LAYOUT' - 200 /; chk 'NAV-PARTIAL' - 200 /; chk '>hello<' 'TOPSECRET\|private-draft' 200 /
+chk '&lt;script&gt;alert' '<script>alert' 200 /                                         # autoescape de datos en la plantilla
+chk 'ABOUT-STATIC' - 200 /about; chk 'ROOT-LAYOUT' - 200 /about
+chk 'BLOG-LAYOUT' 'ROOT-LAYOUT' 200 /blog/; chk 'NAV-PARTIAL' - 200 /blog/; chk 'Blog p1' - 200 /blog/; chk 'Blog p1' - 200 '/blog/?page=1'
+chk - - 400 '/blog/?evil=1'; chk - - 400 '/blog/?page=0'; chk - - 400 '/blog/?page=1&page=2'
+chk 'POST: hello' - 200 /blog/hello; chk 'slug=hello' - 200 /blog/hello
+chk - 'TOPSECRET\|private' 404 /blog/private-draft                                        # viewRule: borrador oculto
+chk - - 404 /blog/Hello; chk - - 404 '/blog/a%2fb'; chk - - 404 '/blog/%2e%2e'; chk - - 404 /blog/nope-no-existe
+chk '&lt;script&gt;' '<script>alert' 200 /blog/xss-post
+chk 'DOC a/b' - 200 /docs/a/b; chk 'DOC x' - 200 /docs/x
+for p in /docs/.env '/docs/a/..%2fb' '/docs/%2e%2e/x' '/docs/a/%2e%2e/b' '/docs/a%00b' '/docs/a%5cb' '/docs/.git/config'; do chk - 'DOC' 404 "$p"; done
+chk 'SENT-OK' - 200 '/contact?sent=true'; chk - 'SENT-OK' 200 /contact; chk - - 400 '/contact?sent=maybe'
+chk - - 303 /contact "${J[@]}" -d '{"name":"ana"}'; chk - - 400 /contact "${J[@]}" -d '{}'; chk - - 400 /contact "${J[@]}" -d '{"name":"a","admin":true}'; chk - - 400 /contact -X POST -d 'name=a&role=admin'
+chk '"ok":true' - 200 /health; chk - - 401 /whoami; chk '"id"' - 200 /whoami -H "Authorization: $TOKA"
+chk - 'SECRET-PAGE-LEAK' 200 /_secret; chk - 'SECRET-PAGE-LEAK' 200 /secret; chk - 'SECRET-PAGE-LEAK' 200 /.hidden; chk - 'SECRET-PAGE-LEAK' 200 /pb_hooks/pages/_secret.js
+code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$B/about"); [[ $code == 404 || $code == 405 ]] && ok "POST a página solo-GET => $code" || ko "POST a página solo-GET => $code"
+hdr '^cache-control: no-store' /blog/hello; hdr '^content-security-policy:' /blog/hello; hdr '^content-type: text/html' /blog/hello
+
 echo "################ F. Rutas mal declaradas deben abortar el arranque"
 bad(){ printf 'module.exports = (app) => { %s };\n' "$2" > "$W.bad.js"; setup "$W.bad.js"
   if grep -q 'pbmini: ' "$W/log" && ! kill -0 $PID 2>/dev/null; then ok "rechazada: $1"; else ko "aceptada: $1"; fi; }
@@ -144,9 +163,41 @@ bad "consulta con placeholder roto" 'app.get("/x", {auth:"public", queries:{q:{c
 bad "consulta con sort inválido" 'app.get("/x", {auth:"public", queries:{q:{collection:"posts", filter:"id != 1", sort:["title; DROP"]}}}, (c) => c.text("x"));'
 bad "consulta con rule inválida" 'app.get("/x", {auth:"public", queries:{q:{collection:"posts", filter:"id != 1", rule:"all"}}}, (c) => c.text("x"));'
 
-echo "################ G. Lint de rutas de aplicación"
-"$HERE/lint.sh" "$ROOT/pb_hooks/routes.js" >/dev/null && ok "lint: routes.js de ejemplo limpio" || ko "lint: routes.js de ejemplo con primitivas peligrosas"
-printf 'module.exports=(a)=>{a.get("/x",{auth:"public"},(c)=>c.json($app.findRecordsByFilter("posts","id != \x27\x27")))}\n' > "$W.bad.js"
-"$HERE/lint.sh" "$W.bad.js" >/dev/null 2>&1 && ko "lint no detectó \$app" || ok "lint detecta \$app en rutas"
+echo "################ I. Páginas mal formadas deben abortar el arranque"
+badpage(){ # desc relpath contenido [symlink-destino] [routes-body]
+  rm -rf "$W.pages"; mkdir -p "$W.pages/$(dirname "$2")"; printf '%s' "$3" > "$W.pages/$2"
+  [[ -n ${4:-} ]] && { rm -f "$W.pages/$2"; ln -s "$4" "$W.pages/$2"; }
+  printf 'module.exports = (app) => { %s };\n' "${5:-}" > "$W.bad.js"; setup "$W.bad.js" "" "$W.pages"
+  if grep -q 'pbmini' "$W/log" && ! kill -0 $PID 2>/dev/null; then ok "rechazada: $1"; else ko "aceptada: $1"; fi; }
+badpage "página sin auth" x.js 'module.exports = { get: (c) => ({}) };'
+badpage "clave desconocida (auht)" x.js 'module.exports = { auht: "public", get: (c) => ({}) };'
+badpage "typo rateLimt (desactivaría el límite)" x.js 'module.exports = { auth: "public", rateLimt: { max: 1 }, get: (c) => ({}) };'
+badpage "sin métodos" x.js 'module.exports = { auth: "public" };'
+badpage "método no función" x.js 'module.exports = { auth: "public", get: 5 };'
+badpage "exporta no-objeto" x.js 'module.exports = 5;'
+badpage "nombre con espacios/mayúsculas" "Bad Name.js" 'module.exports = { auth: "public", get: (c) => ({}) };'
+badpage "extensión no permitida (.txt)" notes.txt 'hola'
+badpage "backup de editor (.js.bak)" x.js.bak 'x'
+badpage "enlace simbólico" ln.html '' /etc/hostname
+badpage "[...x] en directorio" "[...a]/b.js" 'module.exports = { auth: "public", get: (c) => ({}) };'
+badpage "parcial no .html" _partials/evil.sh 'rm -rf /'
+badpage "ruta duplicada con routes.js" x.js 'module.exports = { auth: "public", get: (c) => ({}) };' "" 'app.get("/x", { auth: "public" }, (c) => c.text("x"));'
+badpage "cache con auth:user" x.js 'module.exports = { auth: "user", cache: { maxAge: 10 }, get: (c) => ({}) };'
+badpage "query con nombre reservado" x.js 'module.exports = { auth: "public", query: JSON.parse("{\"__proto__\":\"int\"}"), get: (c) => ({}) };'
+rm -rf "$W.pages"; mkdir -p "$W.pages"; for n in a b; do echo 'module.exports = { auth: "public", get: (c) => ({}) };' > "$W.pages/[$n].js"; done
+printf 'module.exports = (app) => {};\n' > "$W.bad.js"; setup "$W.bad.js" "" "$W.pages"
+if grep -aq 'conflicts with pattern' "$W/log" && ! kill -0 $PID 2>/dev/null; then ok "rechazada: [a] y [b] en conflicto (PocketBase aborta el arranque)"; else ko "aceptada: [a] y [b] en conflicto"; fi
+
+echo "################ G. Lint de código de aplicación"
+"$HERE/lint.sh" "$ROOT/pb_hooks" >/dev/null && ok "lint: pb_hooks de ejemplo limpio" || ko "lint: pb_hooks de ejemplo con primitivas peligrosas"
+"$HERE/lint.sh" "$HERE/mini/pages" >/dev/null && ok "lint: fixture de páginas limpio" || ko "lint: fixture de páginas marcado"
+lintbad(){ rm -rf "$W.l"; mkdir -p "$W.l"; printf '%s\n' "$2" > "$W.l/$1"; "$HERE/lint.sh" "$W.l" >/dev/null 2>&1 && ko "lint no detectó: $3" || ok "lint detecta: $3"; rm -rf "$W.l"; }
+lintbad r.js 'module.exports=(a)=>{a.get("/x",{auth:"public"},(c)=>c.json($app.findRecordsByFilter("posts","id != 1")))}' '$app en rutas'
+lintbad r.js 'module.exports={auth:"public",get:(c)=>$os.exec("id")}' '$os.exec en páginas'
+lintbad p.js 'module.exports={auth:"public",get:(e)=>e.request.url}' 'acceso directo a e.request'
+lintbad p.js 'module.exports={auth:"public",get:(c)=>eval("1")}' 'eval'
+lintbad p.html '<p>{{.x | raw}}</p>' 'raw en plantilla (pipe)'
+lintbad p.html '<p>{{raw .x}}</p>' 'raw en plantilla (función)'
+lintbad p.html '<p>{{js .x}}</p>' 'js en plantilla'
 
 echo; echo "resultado: $npass ok, estado=$fail"; exit $fail

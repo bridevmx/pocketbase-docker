@@ -1,9 +1,8 @@
 // FIXTURE de pruebas (usa $app a propósito para observar la caché; NO es código de aplicación).
 const hits = () => { const s = $app.store(); const n = (s.get("t:hits") || 0) + 1; s.set("t:hits", n); return n; };
 module.exports = (app) => {
-  app.get("/{$}", { auth: "public" }, (c) => c.view("home", { name: "mundo" }));
   app.get("/u/{id}", { auth: "public", params: { id: "id" } }, (c) => c.json({ id: c.params.id }));
-  app.get("/blog/{slug}", { auth: "public", params: { slug: "slug" } }, (c) => c.json({ slug: c.params.slug }));
+  app.get("/slug/{slug}", { auth: "public", params: { slug: "slug" } }, (c) => c.json({ slug: c.params.slug }));
   app.get("/assets/{path...}", { auth: "public", cache: { maxAge: 300 } }, (c) => c.file("pb_public", c.params.path));
   app.get("/me", { auth: "user" }, (c) => c.json({ id: c.auth.id }));
   app.get("/admin/{$}", { auth: "superuser" }, (c) => c.text("admin"));

@@ -1,0 +1,20 @@
+# Probado solo a nivel de sintaxis. Usa la imagen del repo (Dockerfile raíz). Las banderas extra se añaden al ENTRYPOINT.
+services:
+  site:
+    build:
+      context: ../..
+      args:
+        VERSION: "0.40.5"
+    command: ["--migrationsDir=/pb_migrations", "--indexFallback=false"]
+    ports: ["8090:8090"]
+    read_only: true                 # el código de pb_hooks no puede modificarse en producción
+    tmpfs: ["/tmp"]
+    volumes:
+      - ./pb_hooks:/pb_hooks:ro
+      - ./pb_public:/pb_public:ro
+      - ./pb_migrations:/pb_migrations:ro
+      - pb_data:/pb_data
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: ["ALL"]
+volumes:
+  pb_data:

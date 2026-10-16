@@ -19,6 +19,6 @@ curl -fsSL -o "$ZIP" "$URL/$ZIP"; curl -fsSL -o checksums.txt "$URL/checksums.tx
 grep " $ZIP\$" checksums.txt | sha256sum -c - >/dev/null || { echo "CHECKSUM INVÁLIDO para $ZIP"; exit 3; }
 unzip -oq "$ZIP" -d bin; chmod +x bin/pocketbase
 echo "== PocketBase $(bin/pocketbase --version) =="
-"$HERE/lint.sh" "$HERE/../pb_hooks/routes.js"
+"$HERE/lint.sh" "$HERE/../pb_hooks"
 echo "== suite 1: router nativo (debilidades documentadas) =="; "$HERE/run.sh" "$WORK/bin/pocketbase"
 echo "== suite 2: pbmini =="; "$HERE/run-mini.sh" "$WORK/bin/pocketbase"

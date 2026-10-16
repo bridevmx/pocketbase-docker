@@ -130,3 +130,28 @@ Se verificó por **mutación** (desactivar reglas de colección, protección de 
 - **CSRF**: PocketBase autentica con cabecera `Authorization` (no cookie); si añades sesiones por cookie necesitas tokens CSRF y `SameSite`.
 - **Sin cubrir**: subida de archivos, SSE/WebSocket, `$http` (SSRF), normalización Unicode (NFC/homógrafos), HTTP request smuggling (depende del proxy), TLS/HSTS (termina en el proxy), y fugas por tiempo (timing).
 - Un hook que llame `$app`/`$os` directamente salta todos estos controles: el lint de CI es obligatorio.
+
+---
+# Ronda 3: páginas por archivos (modelo "PHP")
+
+Principio: PocketBase ya trae login, usuarios y API; pbmini no los reimplementa. Añade el enrutado por archivos y las plantillas,
+heredando **todos** los controles anteriores (auth explícita, query/body estrictos, consultas preparadas con reglas, caché `no-store` por defecto).
+
+| Riesgo específico de las páginas | Control | Prueba |
+|---|---|---|
+| Un archivo olvidado se convierte en ruta (`.bak`, `.swp`, `_secret.js`) | `_*`/`.*` nunca son rutas; extensión distinta de `.js`/`.html` **aborta el arranque**; `pages/` no se sirve por HTTP | `/_secret`, `/.hidden`, `/pb_hooks/pages/_secret.js` sin fuga; `.js.bak`, `.txt` rechazados |
+| Nombre de archivo que genera un patrón peligroso | Segmentos solo `[a-z0-9_.-]` o `[param]`; sin `..`; `[...x]` solo como archivo final | `Bad Name.js`, `[...a]/b.js` rechazados |
+| Enlaces simbólicos dentro de `pages/` | Rechazados al cargar (tipo de archivo ≠ regular) | symlink `.html` rechazado |
+| Typos de opciones (`rateLimt`, `auht`) que desactivan un control en silencio | Claves desconocidas en la página o en la ruta **abortan el arranque** | `rateLimt`, `auht`, `cahce` |
+| XSS desde datos de la base | `html/template` autoescapa; `raw`/`js`/`html` prohibidos por `lint.sh` (cubre `pages/` y `views/`) | post con `<script>` renderiza `&lt;script&gt;` |
+| Parámetros comodín (`[...path]`) | Cada segmento validado: sin `..`, `\`, NUL, `%`, ni segmentos ocultos | `/docs/.env`, `..%2f`, `%2e%2e`, `.git/config` => 404 |
+| Conflictos de patrones (`[a]` vs `[b]`) | PocketBase aborta el proceso al arrancar (verificado); rutas duplicadas las detecta pbmini | `[a]`/`[b]` => el proceso termina |
+| Borradores/no publicados en una página | `findOne` usa `viewRule` + filtro con parámetros enlazados | `/blog/private-draft` => 404 sin fuga |
+
+Hallazgos técnicos de esta ronda
+- Go **no permite redefinir un `{{block}}` con contenido por defecto en la misma cadena** de plantilla (`multiple definition of template "title"`): un layout con bloques y una página con `{{define}}` deben cargarse como archivos separados (`$template.loadFiles`). pbmini lo resuelve; un HTML plano sin `{{define}}` se inserta como `body` (el bloque `body` del layout debe estar vacío).
+- `$template.loadFS` usa *glob*: nombres como `[slug].html` no se pueden pasar sin escapar; por eso se usa `loadFiles`.
+- El CSP por defecto (`default-src 'self'`) bloquea `<style>`/`<script>` inline: los estilos y scripts van en `pb_public/`. Es deliberado.
+- HTML enriquecido guardado en la base (campo `editor`) se muestra **escapado**: seguro por defecto; mostrarlo exige un sanitizador explícito (no incluido a propósito: un sanitizador casero es un riesgo de mXSS).
+- Con `--indexFallback=false` las URLs inexistentes devuelven 404 real (verificado) en vez de `index.html` con 200.
+- `docker-compose.yml` de ejemplo: **no probado** (en este entorno hay cliente Docker pero no daemon); solo validado con `docker compose config`.

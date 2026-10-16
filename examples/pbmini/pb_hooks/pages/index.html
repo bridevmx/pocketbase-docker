@@ -1,0 +1,6 @@
+{{define "title"}}Inicio{{end}}
+{{define "body"}}
+<h1>Bienvenido</h1>
+<h2>Últimas entradas</h2>
+{{range .posts}}<article><h3><a href="/blog/{{.slug}}">{{.title}}</a></h3></article>{{else}}<p>Aún no hay entradas.</p>{{end}}
+{{end}}
