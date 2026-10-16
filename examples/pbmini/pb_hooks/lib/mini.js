@@ -213,12 +213,12 @@ function runQuery(e, route, anon, qname, params, opt) {
     .map((r) => r.publicExport()); // sin campos hidden ni email oculto
 }
 
-function ctx(e, route, params, q, b, state) {
+function buildContext(e, route, params, q, b, state) {
   const anon = !!route.opts.cache;
-  const c = {
-    params, q, b,
-    auth: anon ? null : e.auth, // una ruta cacheable no puede personalizar
-    esc: (s) => String(s).replace(/[&<>"'`]/g, (ch) => "&#" + ch.charCodeAt(0) + ";"),
+  const ctx = {
+    params, query: q, body: b,
+    user: anon ? null : e.auth, // una ruta cacheable no puede personalizar
+    escape: (s) => String(s).replace(/[&<>"'`]/g, (ch) => "&#" + ch.charCodeAt(0) + ";"),
     json: (o, code) => reply(code || 200, "application/json; charset=utf-8", JSON.stringify(o)),
     text: (s, code) => reply(code || 200, "text/plain; charset=utf-8", String(s)),
     view(name, data, layout) {
@@ -226,7 +226,7 @@ function ctx(e, route, params, q, b, state) {
       const files = [`${__hooks}/views/${layout || "layout"}.html`, `${__hooks}/views/${name}.html`];
       return reply(200, "text/html; charset=utf-8", $template.loadFiles(...files).render(data || {})); // autoescape
     },
-    // Página por archivos: layout más cercano + parciales + HTML de la página (autoescape). Expone .Q (query), .P (params), .User.
+    // Página por archivos: layout más cercano + parciales + HTML de la página (autoescape). Expone .Query, .Params y .User.
     page(data) {
       const pg = route.page;
       if (!pg || !pg.html) throw new Error("pbmini: esta ruta no tiene plantilla .html");
@@ -241,7 +241,7 @@ function ctx(e, route, params, q, b, state) {
       } else if (hasDef) tpl = $template.loadFiles(pg.layout, ...pg.partials, pg.html);
       else tpl = $template.loadString(rd(pg.layout) + pg.partials.map(rd).join("") + '{{define "body"}}' + body + "{{end}}"); // HTML plano => cuerpo (el bloque body del layout debe estar vacío)
       const d = Object.assign({}, data || {});
-      d.Q = Object.assign({}, q); d.P = Object.assign({}, params); d.User = c.auth ? c.auth.publicExport() : null;
+      d.Query = Object.assign({}, q); d.Params = Object.assign({}, params); d.User = ctx.user ? ctx.user.publicExport() : null;
       return reply(200, "text/html; charset=utf-8", tpl.render(d));
     },
     unsafeHtml: (s, code) => reply(code || 200, "text/html; charset=utf-8", String(s)),
@@ -252,7 +252,7 @@ function ctx(e, route, params, q, b, state) {
     },
     file(baseDir, rel) { // sin symlinks, dotfiles, directorios ni traversal
       const base = `${__hooks}/../${baseDir}`;
-      if (!safeFileTarget(base, rel)) return c.notFound();
+      if (!safeFileTarget(base, rel)) return ctx.notFound();
       e.response.header().set("Cache-Control", cacheControl(route, 200, hasCreds(e)));
       return e.fileFS($os.dirFS(base), rel);
     },
@@ -271,7 +271,7 @@ function ctx(e, route, params, q, b, state) {
     }
     return e.blob(code, ctype, toBytes(body));
   }
-  return c;
+  return ctx;
 }
 function safeFileTarget(base, rel) {
   if (!safeWildcard(rel)) return null;
@@ -293,7 +293,6 @@ let loaded = false;
 const exists = (f) => { try { $os.stat(f); return true; } catch (_) { return false; } };
 function load() {
   if (loaded) return; loaded = true;
-  if (exists(`${__hooks}/routes.js`)) require(`${__hooks}/routes.js`)(module.exports);
   if (exists(`${__hooks}/pages`)) require(`${__hooks}/lib/pages.js`)(module.exports);
 }
 // ---- sesión = token de PocketBase ------------------------------------------------------------------
@@ -371,7 +370,7 @@ function dispatch(e) {
         return e.blob(200, hit.ctype, toBytes(hit.body));
       }
     }
-    return route.handler(ctx(e, route, params, pq.q, pb.b, state));
+    return route.handler(buildContext(e, route, params, pq.q, pb.b, state));
   } catch (err) {
     $app.logger().error("pbmini handler error", "route", route.key, "error", String(err)); // detalle sólo en logs
     h.set("Cache-Control", "no-store");
@@ -431,5 +430,5 @@ function route(method, pattern, opts, handler, internal) {
   table[key] = { key, method, pattern, auth: opts.auth, opts, handler, params, paramTypes, query, body, queries, page: internal && internal.page };
 }
 
-const mk = (m) => (p, o, h) => route(m, p, o, h);
-module.exports = { dispatch, register, route, cookieAuth, get: mk("GET"), post: mk("POST"), put: mk("PUT"), patch: mk("PATCH"), del: mk("DELETE") };
+// No hay registro global de rutas (routes.js): cada ruta es un archivo de pages/ (lib/pages.js llama a route()).
+module.exports = { dispatch, register, route, cookieAuth };

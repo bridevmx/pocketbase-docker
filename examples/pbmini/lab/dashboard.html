@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>pbmini Security Lab</title>
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--ink:#14181f;--mute:#5d6675;--line:#e1e5ec;--ok:#0f8a4b;--okbg:#e5f6ec;--bad:#c4281c;--badbg:#fde8e6;--run:#8a5a00;--accent:#2457d6}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#0e1116;--card:#171b22;--ink:#e8ebf0;--mute:#9aa4b2;--line:#283040;--ok:#46c07f;--okbg:#10281c;--bad:#ff7066;--badbg:#321513;--run:#e0b04a;--accent:#7aa2ff}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 system-ui,Segoe UI,sans-serif}
+.wrap{max-width:1100px;margin:0 auto;padding:20px 16px 60px}
+h1{font-size:20px;margin:0}.sub{color:var(--mute);margin:2px 0 14px}
+.bar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:12px}
+.stat{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:8px 14px;min-width:110px}
+.stat b{display:block;font-size:22px;font-variant-numeric:tabular-nums}.stat span{color:var(--mute);font-size:12px}
+.verdict{flex:1;min-width:260px;border-radius:10px;padding:10px 14px;font-weight:600;border:1px solid var(--line);background:var(--card)}
+.verdict.ok{background:var(--okbg);color:var(--ok);border-color:var(--ok)}.verdict.bad{background:var(--badbg);color:var(--bad);border-color:var(--bad)}.verdict.run{color:var(--run)}
+.prog{height:6px;background:var(--line);border-radius:3px;overflow:hidden;margin:6px 0 14px}.prog i{display:block;height:100%;width:0;background:var(--accent);transition:width .15s}
+button{font:inherit;background:var(--accent);color:#fff;border:0;border-radius:8px;padding:8px 14px;cursor:pointer}button:disabled{opacity:.5;cursor:default}
+.filters{display:flex;gap:6px;margin-left:auto}.filters button{background:var(--card);color:var(--ink);border:1px solid var(--line)}.filters button.on{background:var(--ink);color:var(--bg)}
+details{background:var(--card);border:1px solid var(--line);border-radius:10px;margin-bottom:10px}summary{cursor:pointer;padding:10px 14px;font-weight:600;display:flex;gap:10px;align-items:center}
+summary .n{margin-left:auto;color:var(--mute);font-weight:400;font-variant-numeric:tabular-nums}
+.row{display:grid;grid-template-columns:22px 1fr 1fr;gap:4px 12px;padding:8px 14px;border-top:1px solid var(--line)}
+.row .ic{font-weight:700}.row.pass .ic{color:var(--ok)}.row.fail{background:var(--badbg)}.row.fail .ic{color:var(--bad)}
+.lbl{color:var(--mute);font-size:11px;text-transform:uppercase;letter-spacing:.04em}.obs{grid-column:2/4;color:var(--mute);font-size:12.5px;font-family:ui-monospace,Consolas,monospace;word-break:break-all}
+.row.fail .obs{color:var(--bad)}.id{color:var(--mute);font-family:ui-monospace,monospace;font-size:11px}
+.log{color:var(--mute);font-size:12px;margin:0 0 10px}
+@media(max-width:700px){.row{grid-template-columns:22px 1fr}.obs{grid-column:2}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>pbmini Security Lab</h1>
+  <p class="sub" id="env">Conectando…</p>
+  <div class="bar">
+    <div class="stat"><b id="cPass">0</b><span>metas cumplidas</span></div>
+    <div class="stat"><b id="cFail">0</b><span>metas incumplidas</span></div>
+    <div class="stat"><b id="cLeak">0</b><span>fugas de canarios</span></div>
+    <div class="verdict run" id="verdict">Preparando entorno…</div>
+    <button id="rerun" disabled>Repetir ataques</button>
+  </div>
+  <div class="prog"><i id="prog"></i></div>
+  <div class="bar"><span class="log" id="log"></span>
+    <div class="filters"><button data-f="all" class="on">Todas</button><button data-f="fail">Solo fallos</button></div></div>
+  <div id="cats"></div>
+</div>
+<script>
+const $ = (id) => document.getElementById(id);
+let total = 0, pass = 0, fail = 0, leaks = 0, filter = "all";
+const cats = new Map();
+function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; }  // textContent siempre: lo observado viene de payloads hostiles
+function reset() { cats.clear(); $("cats").replaceChildren(); total = pass = fail = leaks = 0; paint(); $("verdict").className = "verdict run"; $("verdict").textContent = "Atacando…"; $("rerun").disabled = true; }
+function paint() { $("cPass").textContent = pass; $("cFail").textContent = fail; $("cLeak").textContent = leaks; $("prog").style.width = total ? Math.min(100, (pass + fail) / total * 100) + "%" : "0"; }
+function category(name) {
+  if (cats.has(name)) return cats.get(name);
+  const d = el("details"); d.open = false; const s = el("summary"); const t = el("span", "", name); const n = el("span", "n", "0/0"); s.append(t, n); d.append(s); $("cats").append(d);
+  const c = { d, n, ok: 0, all: 0 }; cats.set(name, c); return c;
+}
+function addCase(ev) {
+  const c = category(ev.cat); c.all++; const good = ev.status === "pass"; if (good) c.ok++;
+  const r = el("div", "row " + ev.status); r.dataset.s = ev.status;
+  r.append(el("div", "ic", good ? "✓" : "✗"));
+  const a = el("div"); a.append(el("div", "lbl", "Objetivo (qué se intenta romper) · " + ev.id), el("div", "", ev.obj));
+  const b = el("div"); b.append(el("div", "lbl", "Meta (resultado seguro)"), el("div", "", ev.meta));
+  const o = el("div", "obs", `${ev.req}  →  ${ev.observed}  (${ev.ms} ms)`);
+  r.append(a, b, o); c.d.append(r);
+  c.n.textContent = `${c.ok}/${c.all}`; if (!good) { c.d.open = true; c.d.firstChild.style.color = "var(--bad)"; }
+  if (filter === "fail" && good) r.hidden = true;
+  if (good) pass++; else fail++; if (ev.observed.includes("FUGA")) leaks++;
+  paint();
+}
+function handle(ev) {
+  if (ev.type === "reset") reset();
+  else if (ev.type === "log") $("log").textContent = ev.msg;
+  else if (ev.type === "env") $("env").textContent = `PocketBase ${ev.version} · 127.0.0.1:${ev.port} · sandbox aislado · symlinks ${ev.symlinks ? "probados" : "omitidos (Windows)"}`;
+  else if (ev.type === "plan") { total = ev.total; paint(); }
+  else if (ev.type === "case") addCase(ev);
+  else if (ev.type === "done") {
+    const v = $("verdict"); $("rerun").disabled = false;
+    if (ev.failed === 0 && ev.leaks === 0) { v.className = "verdict ok"; v.textContent = `Todas las metas cumplidas (${ev.passed}/${ev.total}). Esto prueba el catálogo, no la ausencia total de fallos.`; }
+    else { v.className = "verdict bad"; v.textContent = `${ev.failed} meta(s) incumplida(s), ${ev.leaks} fuga(s). Revisa las filas en rojo.`; }
+  } else if (ev.type === "error") { $("verdict").className = "verdict bad"; $("verdict").textContent = "Error del laboratorio: " + ev.msg; $("rerun").disabled = false; }
+}
+const es = new EventSource("/events"); es.onmessage = (m) => handle(JSON.parse(m.data));
+es.onerror = () => { $("env").textContent = "Conexión perdida con el laboratorio"; };
+$("rerun").onclick = () => fetch("/run", { method: "POST", headers: { "X-Lab": "1" } });
+document.querySelectorAll(".filters button").forEach((b) => b.onclick = () => {
+  filter = b.dataset.f; document.querySelectorAll(".filters button").forEach((x) => x.classList.toggle("on", x === b));
+  document.querySelectorAll(".row").forEach((r) => r.hidden = filter === "fail" && r.dataset.s === "pass");
+});
+</script>
+</body>
+</html>

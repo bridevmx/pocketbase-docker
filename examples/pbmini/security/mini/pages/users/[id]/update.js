@@ -1,0 +1,1 @@
+module.exports = { auth: "user", params: { id: "id" }, body: { name: { type: "string", max: 40, required: true } }, post: (ctx) => ({ updated: ctx.params.id, by: ctx.user.id, name: ctx.body.name }) };

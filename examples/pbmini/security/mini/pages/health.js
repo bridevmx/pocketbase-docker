@@ -1,1 +1,1 @@
-module.exports = { auth: "public", get: (c) => c.json({ ok: true }) };
+module.exports = { auth: "public", get: (ctx) => ctx.json({ ok: true }) };

@@ -13,27 +13,31 @@ pocketbase serve --hooksDir=./pb_hooks --publicDir=./pb_public --migrationsDir=.
 ```
 Edita `pb_hooks/pages/**` y PocketBase se recarga solo (Linux/macOS). Con Docker: `docker-compose.yml` de esta carpeta.
 
-## Estructura (el archivo ES la ruta)
+## Estructura (el archivo ES la ruta; todo parámetro es una carpeta)
 ```
 pb_hooks/
   pages/
-    _layout.html            layout de todo el sitio ({{block "body" .}}); un _layout.html en una subcarpeta lo reemplaza ahí
-    _partials/nav.html      parciales ({{define "nav"}}…{{end}}) disponibles en todas las páginas (≈ include de PHP)
-    index.js + index.html   →  GET /
-    about.html              →  GET /about        (solo .html = página estática pública)
-    blog/index.js|html      →  GET /blog/
-    blog/[slug].js|html     →  GET /blog/{slug}  (param de ruta)
-    docs/[...path].js       →  GET /docs/a/b/c   (comodín final)
-    contacto.js             →  GET + POST /contacto  (un método por función)
-  routes.js                 endpoints JSON opcionales (app.get/post…)
-pb_public/                  CSS/JS/imágenes estáticos (el CSP es estricto: nada de <style>/<script> inline)
-pb_migrations/              colecciones como código
+    _layout.html              layout de todo el sitio ({{block "body" .}}); un _layout.html en una subcarpeta lo reemplaza ahí
+    _partials/nav.html        parciales ({{define "nav"}}…{{end}}) disponibles en todas las páginas (≈ include de PHP)
+    index.js + index.html     →  GET /                      (raíz; es la única que usa /{$})
+    about.html                →  GET /about                 (solo .html = página estática pública)
+    healthz.js                →  GET /healthz               (solo .js = ENDPOINT: el objeto devuelto sale como JSON)
+    blog/index.js|html        →  GET /blog                  (index = la ruta de su carpeta, sin barra final)
+    blog/[slug]/index.js|html →  GET /blog/{slug}           (la carpeta [slug] ES el parámetro; nunca un archivo [slug].js)
+    users/[id]/update.js      →  POST /users/{id}/update    (un método por función: get/post/put/patch/delete)
+    users/[id]/posts/[postId]/index.js → /users/{id}/posts/{postId}
+    files/[...path]/index.js  →  GET /files/a/b/c           (comodín final: carpeta [...x] con solo index.*)
+pb_public/                    CSS/JS/imágenes estáticos (el CSP es estricto: nada de <style>/<script> inline)
+pb_migrations/                colecciones como código
 ```
-Los archivos que empiezan con `_` o `.` nunca son rutas. Un nombre inválido o un archivo que no sea `.js`/`.html` **aborta el arranque** (no se ignora).
+No hay `routes.js` global: **cada ruta, página o endpoint, es un archivo junto a las demás** (equivalente a `+page`/`+server` de SvelteKit).
+Un `.js` con `.html` renderiza la página; un `.js` sin `.html` es un endpoint (objeto → JSON, o `ctx.json/ctx.text/ctx.redirect`).
+Los archivos que empiezan con `_` o `.` nunca son rutas. Un nombre inválido, un `[param].js` plano, un archivo que no sea `.js`/`.html`
+o un `body` declarado sin método que lo use **abortan el arranque** (no se ignoran).
 
 ## Una página
 ```js
-// pages/blog/[slug].js
+// pages/blog/[slug]/index.js
 module.exports = {
   auth: "public",                                   // OBLIGATORIO: "public" | "user" | "superuser"
   params: { slug: "slug" },                         // tipos: id slug uuid int bool string{max} enum RegExp
@@ -41,40 +45,40 @@ module.exports = {
   queries: {                                        // consultas PREPARADAS: el filtro es una constante
     bySlug: { collection: "posts", filter: "slug = {:s} && published = true", rule: "view", sort: ["-created"] },
   },
-  get(c) {
-    const post = c.findOne("bySlug", { s: c.params.slug });   // aplica viewRule; nunca devuelve campos hidden
-    if (!post) return c.notFound();
+  get(ctx) {
+    const post = ctx.findOne("bySlug", { s: ctx.params.slug });   // aplica viewRule; nunca devuelve campos hidden
+    if (!post) return ctx.notFound();
     return { post };                                // el objeto devuelto se renderiza con [slug].html dentro del layout
   },
 };
 ```
 ```html
-<!-- pages/blog/[slug].html -->
+<!-- pages/blog/[slug]/index.html -->
 {{define "title"}}{{.post.title}}{{end}}
 {{define "body"}}<h1>{{.post.title}}</h1><p>{{.post.body}}</p>{{end}}
 ```
-En la plantilla tienes `.Q` (query validada), `.P` (params), `.User` (usuario autenticado por `Authorization`) y tus datos. El HTML se
+En la plantilla tienes `.Query` (query validada), `.Params` (params), `.User` (usuario autenticado por `Authorization`) y tus datos. El HTML se
 **escapa automáticamente**; `raw`, `js` y `html` están prohibidos por el lint. Un HTML sin `{{define}}` se inserta como cuerpo del layout
 (el `{{block "body" .}}` del layout debe estar vacío); con `{{define}}` puedes redefinir `title`, `body`, etc.
 
 ## API de `c`
 | | |
 |---|---|
-| `c.params`, `c.q`, `c.b` | params de ruta, query y body **ya validados** (objetos sin prototipo) |
-| `c.find(q, params, {sort,page,limit})`, `c.findOne(q, params)` | ejecutan una consulta declarada en `queries` (reglas de colección aplicadas) |
-| `c.json(o,code)`, `c.text(s,code)`, `c.redirect("/ruta",code)`, `c.notFound()`, `c.forbidden()` | respuestas (redirect solo a rutas relativas) |
-| `c.view(nombre, datos)` | plantilla de `pb_hooks/views/` (para `routes.js`) |
-| `c.file(dirRelativo, ruta)` | sirve un archivo sin symlinks, dotfiles ni traversal |
-| `c.auth` | registro autenticado (`null` en rutas con `cache`) |
+| `ctx.params`, `ctx.query`, `ctx.body` | params de ruta, query y body **ya validados** (objetos sin prototipo) |
+| `ctx.find(q, params, {sort,page,limit})`, `ctx.findOne(q, params)` | ejecutan una consulta declarada en `queries` (reglas de colección aplicadas) |
+| `ctx.json(o,code)`, `ctx.text(s,code)`, `ctx.redirect("/ruta",code)`, `ctx.notFound()`, `ctx.forbidden()` | respuestas (redirect solo a rutas relativas) |
+| `ctx.view(nombre, datos)` | plantilla de `pb_hooks/views/` |
+| `ctx.file(dirRelativo, ruta)` | sirve un archivo sin symlinks, dotfiles ni traversal |
+| `ctx.user` | registro autenticado (`null` en rutas con `cache`) |
 
 Opciones de ruta: `auth`, `params`, `query`, `body` (POST/PUT/PATCH/DELETE), `queries`, `cache: {maxAge, server}`,
 `bodyLimit`, `unknownQuery: "ignore"`. Cualquier opción desconocida (un typo) **aborta el arranque**.
 
 ## Reglas de oro
-1. En `pages/` y `routes.js` **solo** la API `c`. `$app`, `$os`, `$http`, `e.*`, `require` los bloquea `security/lint.sh` (CI).
+1. En `pages/` **solo** la API `c`. `$app`, `$os`, `$http`, `e.*`, `require` los bloquea `security/lint.sh` (CI).
 2. Nunca construyas filtros con texto del usuario: declara la consulta y pasa parámetros.
 3. Login, registro, escritura y límite de peticiones los hace PocketBase (SDK/API/ajustes). Mira la tabla de abajo antes de añadir nada.
-4. Prueba: `examples/pbmini/security/run-mini.sh /ruta/a/pocketbase` (313 comprobaciones).
+4. Prueba: `examples/pbmini/security/run-mini.sh /ruta/a/pocketbase` (suite bash) y `python examples/pbmini/lab/lab.py` (laboratorio en vivo, ~290 ataques con objetivo y meta).
 
 ## Qué hace PocketBase y qué añade pbmini (no reinventamos la rueda)
 | Tema | Lo hace PocketBase (nativo) | pbmini |
@@ -95,7 +99,7 @@ Opciones de ruta: `auth`, `params`, `query`, `body` (POST/PUT/PATCH/DELETE), `qu
 await pb.collection("users").authWithPassword(email, pass);
 document.cookie = pb.authStore.exportToCookie({ httpOnly: false, sameSite: "Strict", secure: true });   // cookie `pb_auth`
 ```
-Las páginas con `auth: "user"` y `c.auth` ya funcionan por cookie. Con cookie, los métodos que cambian estado (POST/PUT/PATCH/DELETE) solo
+Las páginas con `auth: "user"` y `ctx.user` ya funcionan por cookie. Con cookie, los métodos que cambian estado (POST/PUT/PATCH/DELETE) solo
 se aceptan si el navegador declara `Sec-Fetch-Site: same-origin|none` (anti‑CSRF). La API nativa `/api/*` **no** lee la cookie.
 Una cookie escrita desde JS no puede ser `HttpOnly` (igual que `localStorage`): el CSP estricto es la mitigación (recomendada por la doc del SDK).
 

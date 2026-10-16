@@ -3,5 +3,5 @@ module.exports = {
   auth: "public",
   cache: { maxAge: 60 },                                     // opcional: Cache-Control público (solo respuestas anónimas)
   queries: { recent: { collection: "posts", filter: "published = true", sort: ["-created"], maxLimit: 5 } },
-  get(c) { return { posts: c.find("recent", {}, { limit: 5 }) }; },   // el objeto devuelto llega a la plantilla
+  get(ctx) { return { posts: ctx.find("recent", {}, { limit: 5 }) }; },   // el objeto devuelto llega a la plantilla
 };

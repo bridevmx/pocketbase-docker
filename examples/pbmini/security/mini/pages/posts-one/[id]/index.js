@@ -1,0 +1,1 @@
+module.exports = { auth: "public", params: { id: "id" }, queries: { byid: { collection: "posts", filter: "id = {:id}", rule: "view" } }, get: (ctx) => ctx.json(ctx.findOne("byid", { id: ctx.params.id })) };

@@ -1,1 +1,1 @@
-module.exports = { auth: "user", get: (c) => c.json({ id: c.auth.id }) };
+module.exports = { auth: "user", get: (ctx) => ctx.json({ id: ctx.user.id }) };

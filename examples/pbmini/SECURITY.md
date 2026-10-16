@@ -38,8 +38,8 @@ vinculación OAuth2): ninguno es de routing/archivos; los de 2026 están corregi
 ## Reglas obligatorias para el microframework (guardrails)
 - **Deny by default**: rutas custom requieren declarar `auth: "public" | "user" | "superuser"` explícito; sin declarar => error al registrar.
 - **Params tipados y validados** antes del handler (`{id:[a-z0-9]{15}}`, `{slug:slug}`); rechazar `..`, `/`, `\`, NUL, `%`.
-- **Prohibir rutas de archivo desde input**: ofrecer solo `c.file(basename-validado)` con `path.Clean` + comprobación de prefijo + `Lstat` que rechace symlinks y dotfiles.
-- **Escape por defecto** en `c.html`; `raw` solo mediante `c.unsafeHtml()` explícito.
+- **Prohibir rutas de archivo desde input**: ofrecer solo `ctx.file(basename-validado)` con `path.Clean` + comprobación de prefijo + `Lstat` que rechace symlinks y dotfiles.
+- **Escape por defecto** en `ctx.html`; `raw` solo mediante `ctx.unsafeHtml()` explícito.
 - **Redirects** solo a rutas relativas que empiecen con un `/` único (rechazar `//` y esquemas).
 - **Cabeceras de seguridad** (CSP, Referrer-Policy, HSTS tras proxy) y CORS restrictivo por ruta, vía middleware global.
 - **404 real** (JSON/HTML) en lugar del fallback a `index.html`, salvo SPA declarada.
@@ -53,9 +53,9 @@ vinculación OAuth2): ninguno es de routing/archivos; los de 2026 están corregi
 | Deny by default | `auth: "public"\|"user"\|"superuser"` obligatorio; si falta, el registro aborta |
 | Registro fail-closed | Se valida todo antes del primer `routerAdd`; si algo falla, `$os.exit(1)` (`PBMINI_ON_ERROR=warn` para dev). **PocketBase por sí solo sigue vivo tras un error de hook** |
 | Params validados | Todo parámetro rechaza `/ \ % NUL ..` y dotfiles en comodines; tipos `id`, `slug`, `int`, `uuid` o RegExp; inválido => 404 |
-| Archivos | `c.file(dir, rel)`: sin symlinks, dotfiles, directorios ni traversal (`readDir` + tipo estricto) |
-| XSS | HTML solo por `c.view` (autoescape); `c.unsafeHtml` explícito; `c.esc` |
-| Redirects | `c.redirect` solo `"/ruta"` (rechaza `//`, `/\`, esquemas, control) |
+| Archivos | `ctx.file(dir, rel)`: sin symlinks, dotfiles, directorios ni traversal (`readDir` + tipo estricto) |
+| XSS | HTML solo por `ctx.view` (autoescape); `ctx.unsafeHtml` explícito; `ctx.escape` |
+| Redirects | `ctx.redirect` solo `"/ruta"` (rechaza `//`, `/\`, esquemas, control) |
 | Cabeceras | CSP, Referrer-Policy, nosniff, X-Frame-Options, Permissions-Policy, CORP en rutas custom |
 | Errores | Excepciones => 500 genérico; detalle solo en logs |
 | Abuso | `bodyLimit` 1 MiB por defecto (configurable); ~~rate limit propio~~ (reemplazado en la Ronda 4 por el limitador **nativo** de PocketBase) |
@@ -63,11 +63,12 @@ vinculación OAuth2): ninguno es de routing/archivos; los de 2026 están corregi
 
 ### Límites conocidos (no resueltos por pbmini)
 - CORS `*` global de PocketBase y el fallback `index.html` de `publicDir` (usar `--indexFallback=false` si no es una SPA).
-- `publicDir`/`$apis.static` nativos siguen sirviendo symlinks y dotfiles: en `pb_public` usa `c.file` o audita con CI.
+- `publicDir`/`$apis.static` nativos siguen sirviendo symlinks y dotfiles: en `pb_public` usa `ctx.file` o audita con CI.
 - El código de `pb_hooks` tiene acceso total al sistema: revisar dependencias, montar de solo lectura.
 
 ---
 # Ronda 2: query strings, base de datos y caché (medido en 0.40.5)
+> Nota: los ejemplos de esta ronda usan la API histórica `app.get(...)` y `c`. Hoy cada ruta es un archivo en `pages/` y el contexto se llama `ctx` (Ronda 5/6); los controles descritos no cambiaron.
 
 ## Query string: comportamiento real de PocketBase/Go
 | Entrada | Resultado medido | Riesgo |
@@ -97,9 +98,9 @@ Probado con `$app.findRecordsByFilter` (lo que hace cualquier hook):
 app.get("/posts", { auth:"public",
   queries: { byTitle: { collection:"posts", filter:"title = {:t}", sort:["title","-title"] } },
   query:   { title:{type:"string",max:100}, sort:{enum:["title","-title"],default:"title"} } },
-  (c) => c.json(c.find("byTitle", { t: c.q.title }, { sort: c.q.sort })));
+  (ctx) => ctx.json(ctx.find("byTitle", { t: ctx.query.title }, { sort: ctx.query.sort })));
 ```
-`c.find` valida parámetros y paginación, restringe `sort` a la lista declarada y a campos **no hidden**, aplica `listRule`/`viewRule`
+`ctx.find` valida parámetros y paginación, restringe `sort` a la lista declarada y a campos **no hidden**, aplica `listRule`/`viewRule`
 con `canAccessRecord` por registro (regla `null` => solo superuser) y exporta con `publicExport()` (sin hidden ni email oculto).
 Colecciones `_sistema` vetadas. `security/lint.sh` prohíbe `$app/$os/$http/e.*` en el código de rutas.
 
@@ -112,7 +113,7 @@ Colecciones `_sistema` vetadas. `security/lint.sh` prohíbe `$app/$os/$http/e.*`
 **Controles de pbmini**
 1. `Cache-Control: no-store` por defecto en todo; solo `200` anónimo de rutas con `cache:{maxAge}` relaja a `public, max-age=N`.
 2. `cache` solo en `GET`, `auth:"public"`, sin `prefix`, `maxAge` 1..86400 (registro falla si no).
-3. **Con `Authorization` o `Cookie` la respuesta es siempre `no-store` y no se sirve ni guarda en caché compartida**; las rutas cacheables ven `c.auth = null` y las reglas se evalúan como anónimo (no se puede personalizar una respuesta cacheada).
+3. **Con `Authorization` o `Cookie` la respuesta es siempre `no-store` y no se sirve ni guarda en caché compartida**; las rutas cacheables ven `ctx.user = null` y las reglas se evalúan como anónimo (no se puede personalizar una respuesta cacheada).
 4. Errores, redirects y 4xx/5xx: siempre `no-store`.
 5. `ETag` (SHA-256) + `If-None-Match` => 304 en rutas cacheables.
 6. Caché de servidor opt-in (`cache:{server:true}`): la clave son **solo valores validados y declarados** (nunca URL cruda, `Host` ni cabeceras; el orden y la codificación de la query se normalizan);
@@ -124,7 +125,7 @@ Colecciones `_sistema` vetadas. `security/lint.sh` prohíbe `$app/$os/$http/e.*`
 Se verificó por **mutación** (desactivar reglas de colección, protección de credenciales en caché y rechazo de duplicados) que las pruebas fallan (12 FAIL).
 
 ## Límites y riesgos residuales (no resueltos / no probados)
-- **Filtrado post-consulta por regla**: `c.find` aplica `listRule` tras `findRecordsByFilter`; una página puede devolver menos de `limit` filas (no filtra por conteo). Reglas muy costosas => N consultas por página (máx. 100).
+- **Filtrado post-consulta por regla**: `ctx.find` aplica `listRule` tras `findRecordsByFilter`; una página puede devolver menos de `limit` filas (no filtra por conteo). Reglas muy costosas => N consultas por página (máx. 100).
 - **Rate limit**: ahora es el nativo de PocketBase (Ronda 4). `realIP` solo es fiable tras un proxy si configuras los *trusted proxy headers* de PocketBase.
 - **CSRF**: PocketBase autentica con cabecera `Authorization` (no cookie); si añades sesiones por cookie necesitas tokens CSRF y `SameSite`.
 - **Sin cubrir**: subida de archivos, SSE/WebSocket, `$http` (SSRF), normalización Unicode (NFC/homógrafos), HTTP request smuggling (depende del proxy), TLS/HSTS (termina en el proxy), y fugas por tiempo (timing).
@@ -165,7 +166,7 @@ Consecuencias en el código (todas verificadas con `run-mini.sh`, 313 comprobaci
 |---|---|---|
 | Limitador de peticiones propio | **Reinventado**: el limitador nativo SÍ aplica a rutas de hooks (exactas, prefijo `/…/` y `GET /ruta`) y no se evade con `X-Forwarded-For` | Eliminado (`rateLimit` ya no existe y es error al registrar). Migración de ejemplo + aviso al arrancar (`onServe`) si está desactivado |
 | Comprobaciones de auth inline (401/403) | **Reinventado**: existen middlewares nativos | Se usan `$apis.requireAuth()` / `requireSuperuserAuth()` (un usuario normal en ruta superuser recibe 403 nativo) |
-| `canAccessRecord` + `publicExport` en `c.find` | **Nativo y documentado** (ejemplo oficial de `routerAdd` + `canAccessRecord`) | Se mantiene; solo añade filtros constantes y `sort` limitado |
+| `canAccessRecord` + `publicExport` en `ctx.find` | **Nativo y documentado** (ejemplo oficial de `routerAdd` + `canAccessRecord`) | Se mantiene; solo añade filtros constantes y `sort` limitado |
 | Restricciones de filtro/orden | La API REST ya bloquea hidden/`@collection`/`@request` (400/403); los hooks (`$app.*`) no | Se mantiene, pero solo porque los hooks no las tienen (documentado) |
 | Escrituras | PocketBase ya las valida con sus reglas | **No se implementan**; se descartó la "escritura declarativa" |
 | Login/sesiones | Token JWT sin estado, revocación por cambio de contraseña (verificado) | **No se implementan**. Solo se lee la cookie `pb_auth` del SDK |
@@ -179,3 +180,27 @@ La API nativa no lee la cookie, así que no se amplía su superficie.
 
 Riesgos residuales: la cookie escrita por JS no puede ser `HttpOnly` (mismo riesgo que `localStorage`; mitiga el CSP); "cookie tossing" desde un subdominio solo puede degradar a anónimo
 (la primera `pb_auth` manda), nunca suplantar a otro usuario; un cliente sin `Sec-Fetch-Site` (no navegador) no es vector CSRF; tokens robados siguen siendo válidos hasta expirar o cambiar la contraseña (no hay logout en servidor, igual que en PocketBase).
+
+---
+# Ronda 5: rutas por carpetas y endpoints por archivo
+
+Medido en 0.40.5 (el enrutador nativo es el de Go 1.22; la doc de PocketBase no muestra comodines en medio de la ruta, pero funcionan):
+`/n/{slug}/comments/{id}` y `/n/{slug}/edit` conviven; `/k/{a}/x` y `/k/{b}/y` no entran en conflicto; solo dos patrones que se solapan en la misma posición abortan el arranque.
+`%2f` dentro de un parámetro llega **decodificado** (`a/b`), por eso los tipos estrictos son obligatorios; en rutas con auth, la autenticación se evalúa antes que la validación del parámetro (401, no 404).
+
+| Cambio | Motivo | Prueba |
+|---|---|---|
+| Todo parámetro es carpeta (`[id]/index.js`); `[x].js` plano aborta | Una sola forma de declarar rutas; sin choques `[a]` vs `[b]` entre archivos y carpetas | lab F: `[slug].js`, `[...path].js` |
+| `index` = ruta exacta de su carpeta (sin barra final); la raíz sigue siendo `/{$}` | Sin redirección 307 ni doble URL (`/blog/abc` y `/blog/abc/`); la forma con barra es 404 | lab K: `/users/<id>/` → 404 |
+| `[...x]` es carpeta y solo admite `index.*` | Go solo admite el comodín al final | lab F: comodín con otro archivo/subcarpeta |
+| Sin `routes.js`: cada ruta es un archivo; `.js` sin `.html` = endpoint JSON | Un único registro de rutas, el mismo control de auth/query/body para páginas y endpoints | lab K, `pages/healthz.js` |
+| `body` sin ningún método que lo use aborta el arranque | Antes se ignoraba en silencio (hallazgo del laboratorio) | lab F: "body en GET" |
+| Laboratorio con `--indexFallback=false` | URL inexistente = 404 real (no 200 con `index.html`) | lab K: `/nada/x/y` → 404 |
+
+Hallazgo corregido de paso: la prueba de "firma JWT alterada" cambiaba el último carácter de la firma, que solo aporta bits de relleno de base64url
+y a veces la deja intacta (falso fallo intermitente). Ahora se altera el primer carácter.
+
+---
+# Ronda 6: nombres declarativos del contexto
+`c` → **`ctx`**, y sus campos sin abreviar: `ctx.q` → `ctx.query`, `ctx.b` → `ctx.body`, `ctx.auth` → `ctx.user`, `ctx.esc` → `ctx.escape`.
+En plantillas: `.Q` → `.Query`, `.P` → `.Params` (`.User` no cambia). Se eliminó el alias `c`. No se usa `e` a propósito: es el evento crudo de PocketBase y el lint lo bloquea en `pages/`.

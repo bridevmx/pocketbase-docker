@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Lint de código de aplicación pbmini. Uso: lint.sh <archivo|directorio>...
-#  - .js (routes.js, pages/**): sólo la API `c`; prohíbe primitivas del sistema y evaluación dinámica.
+#  - .js (pages/**: páginas y endpoints): sólo la API `c`; prohíbe primitivas del sistema y evaluación dinámica.
 #  - .html (pages, views): prohíbe `raw` (desactiva el autoescape de $template) y funciones de inclusión externas.
 # Se ignoran lib/ y *.pb.js (infraestructura del framework).
 set -u; fail=0
