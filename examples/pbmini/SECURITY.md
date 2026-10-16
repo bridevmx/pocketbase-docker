@@ -121,7 +121,7 @@ Colecciones `_sistema` vetadas. `security/lint.sh` prohíbe `$app/$os/$http/e.*`
    tope `PBMINI_STORE_MAX` (def. 20000): si está lleno se purga lo expirado y **no se desaloja** ni se inserta (una inundación no expulsa entradas legítimas).
 
 ## Cobertura de pruebas
-`security/run-mini.sh` => 207 chequeos (query 60+, body 15, DB/ACL 30, caché 35, registro 27, lint, archivos/rutas/XSS/redirect).
+`security/run-mini.sh` => 207 chequeos: archivos/rutas/XSS/redirect/límites 42, query 50, body 19, DB/ACL 32, caché 36, registro 26, lint 2.
 Se verificó por **mutación** (desactivar reglas de colección, protección de credenciales en caché y rechazo de duplicados) que las pruebas fallan (12 FAIL).
 
 ## Límites y riesgos residuales (no resueltos / no probados)
