@@ -6,30 +6,25 @@
 // Un .js con .html renderiza la página (objeto devuelto => plantilla). Un .js SIN .html es un endpoint (equivalente a +server.js):
 // el objeto devuelto se responde como JSON, o usa ctx.json/ctx.text/ctx.redirect. Un .html sin .js es una página estática pública.
 // Archivos/carpetas que empiezan con _ o . nunca son rutas. _layout.html y _partials/ definen layout y parciales.
-// Cada .js exporta {auth, params, query, body, queries, cache, paginate, mutations, bodyLimit, unknownQuery, get, post, put, patch, delete}.
+// Cada .js exporta {auth, access, params, query, body, queries, cache, paginate, mutations, bodyLimit, unknownQuery, get, post, put, patch, delete}.
 // params/query/body pueden ser el nombre de un archivo de pages/_schemas/ (esquema reutilizable).
 module.exports = function (app) {
   const root = `${__hooks}/pages`;
   const fail = (m) => { throw new Error("pbmini pages: " + m); };
   const METHODS = { get: "GET", post: "POST", put: "PUT", patch: "PATCH", delete: "DELETE" };
-  const ROUTE_KEYS = ["auth", "params", "query", "queries", "cache", "bodyLimit", "unknownQuery", "paginate", "mutations"];
+  const ROUTE_KEYS = ["auth", "params", "query", "queries", "cache", "bodyLimit", "unknownQuery", "paginate", "mutations", "access"];
   const MOD_KEYS = ROUTE_KEYS.concat(["body", "get", "post", "put", "patch", "delete"]);
   const list = (dir) => $os.readDir(dir).map((d) => ({ name: d.name(), dir: d.isDir(), type: Number(d.type()) })).sort((a, b) => (a.name < b.name ? -1 : 1));
-  const PLAIN = /^[a-z0-9][a-z0-9_.-]{0,63}$/;
+  const names = require(`${__hooks}/lib/names.js`); // reglas de nombres compartidas con el generador pbmini:new
 
   // Carpeta => segmento del patrón: nombre plano, {param} o {param...}
   function dirSegment(name, where) {
-    let m;
-    if ((m = /^\[\.\.\.([A-Za-z_][A-Za-z0-9_]{0,31})\]$/.exec(name))) return { seg: "{" + m[1] + "...}", wild: true };
-    if ((m = /^\[([A-Za-z_][A-Za-z0-9_]{0,31})\]$/.exec(name))) return { seg: "{" + m[1] + "}", wild: false };
-    if (PLAIN.test(name) && name.indexOf("..") < 0) return { seg: name, wild: false };
-    return fail(`${where}: nombre de carpeta no permitido "${name}" (minúsculas, dígitos, _ . -  o [param])`);
+    return names.dirSegment(name) || fail(`${where}: nombre de carpeta no permitido "${name}" (minúsculas, dígitos, _ . -  o [param])`);
   }
   // Archivo (distinto de index) => segmento plano. Un [param] plano está prohibido: los parámetros son carpetas.
   function fileSegment(base, where) {
     if (/^\[.*\]$/.test(base)) fail(`${where}: un parámetro debe ser una carpeta (usa ${base}/index.js)`);
-    if (PLAIN.test(base) && base.indexOf("..") < 0) return base;
-    return fail(`${where}: nombre de archivo no permitido "${base}" (minúsculas, dígitos, _ . -)`);
+    return names.fileSegment(base) || fail(`${where}: nombre de archivo no permitido "${base}" (minúsculas, dígitos, _ . -)`);
   }
   const exists = (f) => { try { $os.stat(f); return true; } catch (_) { return false; } };
   function partials() {
@@ -67,9 +62,23 @@ module.exports = function (app) {
     return schemaCache[name];
   }
 
-  function walk(dir, segs, layout, wild) {
+  // Layouts: cada carpeta puede tener un _layout.html. Si DEFINE el slot del layout padre ({{define "body"}}...) lo EXTIENDE (queda dentro del padre)
+  // y debe declarar su propio slot ({{block "inner" .}}{{end}}); si no, REEMPLAZA a los anteriores (comportamiento clásico).
+  // Slots por profundidad: body, inner, inner2, inner3...  La página rellena el slot del layout más profundo.
+  const slotName = (i) => (i === 0 ? "body" : i === 1 ? "inner" : "inner" + i);
+  const reSlot = (kind, name) => new RegExp("\\{\\{-?\\s*" + kind + "\\s+\"" + name + "\"[\\s}-]");
+  function nestLayouts(dir, layouts) {
+    const file = dir + "/_layout.html", rel = file.slice(root.length + 1), txt = toString($os.readFile(file));
+    if (layouts.length === 0 || !reSlot("define", slotName(layouts.length - 1)).test(txt)) return [file];
+    if (layouts.length >= 4) fail(`${rel}: máximo 4 niveles de layouts anidados`);
+    const own = slotName(layouts.length);
+    if (!reSlot("block", own).test(txt)) fail(`${rel}: extiende al layout padre; debe contener {{block "${own}" .}}{{end}} para el contenido de la página`);
+    return layouts.concat(file);
+  }
+  function walk(dir, segs, layouts, wild, errPage) {
     const entries = list(dir);
-    if (entries.some((e) => e.name === "_layout.html" && !e.dir && e.type === 0)) layout = dir + "/_layout.html";
+    if (entries.some((e) => e.name === "_layout.html" && !e.dir && e.type === 0)) layouts = nestLayouts(dir, layouts);
+    if (entries.some((e) => e.name === "_error.html" && !e.dir && e.type === 0)) errPage = dir + "/_error.html"; // el más cercano manda
     const files = {};
     for (const e of entries) {
       if (e.name.charAt(0) === "." || e.name.charAt(0) === "_") continue; // ocultos/privados: nunca son rutas
@@ -77,7 +86,7 @@ module.exports = function (app) {
       if (e.dir) {
         if (wild) fail(`${where}: dentro de una carpeta [...comodín] solo puede haber index.js|html`);
         const s = dirSegment(e.name, where);
-        walk(dir + "/" + e.name, segs.concat(s.seg), layout, s.wild);
+        walk(dir + "/" + e.name, segs.concat(s.seg), layouts, s.wild, errPage);
         continue;
       }
       if (e.type !== 0) fail(`${where}: enlaces simbólicos y archivos especiales no permitidos`);
@@ -112,9 +121,10 @@ module.exports = function (app) {
         else delete o.mutations;                                  // las escrituras nunca cuelgan de un GET (CSRF)
         // con .html el objeto se renderiza; sin .html (endpoint) se responde como JSON
         const handler = f.js ? (ctx) => { const out = require(f.js)[m](ctx); return out && typeof out === "object" ? (hasHtml ? ctx.page(out) : ctx.json(out)) : out; } : mod.get;
-        app.route(METHODS[m], pattern, o, handler, { page: { html: f.html || null, layout, partials: parts } });
+        app.route(METHODS[m], pattern, o, handler, { page: { html: f.html || null, layout: layouts.length ? layouts[layouts.length - 1] : null, layouts, slot: slotName(Math.max(layouts.length - 1, 0)), error: errPage, partials: parts } });
       });
     }
   }
-  walk(root, [], null, false);
+  walk(root, [], [], false, null);
+  if (exists(root + "/_error.html")) app.setRootError({ error: root + "/_error.html", partials: parts }); // 404 nativo con HTML
 };

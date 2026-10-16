@@ -272,3 +272,53 @@ Investigación previa (técnicas actuales, no específicas de PocketBase) y qué
 Límites que siguen abiertos: carreras TOCTOU (un symlink creado *después* del arranque no está en la lista de denegación; exige permiso de escritura en `pb_public`, por eso el despliegue debe montarlo de solo lectura),
 macOS (APFS normaliza nombres a NFD y es insensible a mayúsculas: sin probar), `Origin` duplicado (se evalúa solo el primero) y la heurística de `~[0-9]` (rechaza también archivos legítimos como `a~1b`).
 Los comandos de la CLI de PocketBase (`superuser upsert`, `migrate`) cargan los hooks y por tanto ejecutan la auditoría: con un `pb_public` sucio abortan (usa `PBMINI_PUBLIC_AUDIT=warn` solo en desarrollo).
+
+---
+# Ronda 9: segunda tanda de funcionalidades (esquemas, datos, páginas, operación, desarrollo) con su fase de ataque
+
+**Decisión de diseño (sección «cuentas y sesiones»).** Se comparó cada idea con lo que PocketBase ya hace (documentación oficial, revisada de nuevo):
+
+| Idea | PocketBase nativo | Decisión |
+|---|---|---|
+| Roles / membresías | solo campos + reglas (`@request.auth.role = …`) | módulo **opcional** `access` (flag, 2 modos) que lee campos existentes; no crea tablas |
+| Flujos de cuenta (verificar, restablecer, cambiar correo) | endpoints y plantillas nativos; el restablecimiento invalida los tokens | **no se implementa** (duplicaría superficie: enumeración, límites) |
+| Sesiones múltiples | tokens sin estado: no hay lista ni revocación individual | módulo **opcional** `sessions` (apagado, compatible con proyectos existentes); `logout`/`logoutEverywhere` siempre disponibles |
+| 2FA / OTP / OAuth2 | opciones de la colección (MFA con `_mfas`, OTP, OAuth2) | **no se implementa**; se documenta |
+
+**Modelo de amenazas y defensas nuevas** (cada una con ataques y mutaciones en el laboratorio):
+
+| Función | Amenaza | Defensa |
+|---|---|---|
+| Esquemas reutilizables | esquema inexistente/ambiguo se ignora y desactiva validación | nombre resuelto en arranque; cualquier anomalía aborta |
+| Filtros declarados | inyección de filtro por la query | fragmentos constantes con un único `{:v}`; la petición solo aporta valores enlazados |
+| Paginación | `total` revela registros ocultos; `perPage` enorme | solo `hasMore` sobre lo visible; límites validados en arranque |
+| Escrituras / tx | mass assignment, robo de propiedad (`owner`), escritura por GET (CSRF), reglas de creación | lista blanca de campos; regla de update/delete contra el registro existente **antes** de modificar; GET prohibido; creación con regla evaluada en transacción |
+| Caché con etiquetas | datos obsoletos tras un cambio | purga por colección desde hooks nativos; etiqueta inválida = sin caché |
+| Layouts / errores | eco de datos de la petición en la página de error; XSS entre niveles | solo `Status/Reason`; un único autoescape para toda la cadena |
+| i18n | envenenamiento de caché por idioma; `Accept-Language` hostil; interpolación | idioma en la clave de caché + `Vary`; cabecera acotada y validada contra archivos; sustitución literal de una pasada |
+| Cron | expresiones inválidas que nunca corren; ejecución por usuarios | validación de rango en arranque; solo superusuario puede lanzarlas |
+| Correo | inyección de cabeceras, correo masivo, disparo por enlace | destinatario único con regex estricta, límites por hora, nunca desde GET, remitente fijo |
+| Acceso | plan vencido, valores hostiles en campos, campos ausentes | fail-closed; plan de pago sin fecha vigente = vencido; roles/permisos solo de listas declaradas |
+| Sesiones | token en claro en la base, revocar sesiones ajenas, tokens huérfanos tras un refresh | solo `sha256`; propiedad comprobada; el token anterior queda ligado a la misma sesión |
+| Generador | traversal, sobrescritura | mismas reglas de nombres que el cargador (`lib/names.js`); nunca sobrescribe ni sale de `pages/` |
+
+**Hallazgos de la fase de ataque de esta ronda** (todos corregidos y cubiertos por una prueba):
+1. `e.requestInfo()` falla (EOF) tras leer el cuerpo con el parser JSON estricto: las reglas de colección se evalúan ahora con un `RequestInfo` propio (auth + método + cuerpo ya validado).
+2. La regla `createRule` solo se puede evaluar con el registro guardado (como hace la API nativa): se hace dentro de una transacción que se revierte si niega.
+3. `cronAdd` de PocketBase acepta `61 25 * * *` (nunca se ejecutaría): validación de rangos propia.
+4. Un fixture del propio laboratorio devolvía 500 con una consulta válida sin parámetro (`/posts` sin `title`): el fuzzer guiado lo detectó; corregido.
+5. Dos JWT del mismo usuario emitidos en el mismo segundo son idénticos: comparten sesión (documentado, y las pruebas lo respetan).
+6. Tras un `refresh`, el token anterior seguía siendo aceptado por `legacy: "allow"` aunque la sesión se revocara: ahora queda ligado a la misma sesión (`olds`).
+
+**Fuzzer guiado por definiciones** (`lab/attacks_guided.py`): lee `pocketbase pbmini:routes` y, por cada ruta, comprueba la matriz de autenticación, ~20-40 entradas inválidas por campo
+(límites, casi-patrones, tipos cruzados, duplicados, prototipos, cuerpos raros), entradas válidas generadas (nunca 5xx ni fugas) y 400 mezclas aleatorias con semilla fija.
+
+**Límites que siguen abiertos (honestidad):** la API nativa de PocketBase no pasa por `access`/`sessions` (espeja las reglas en las colecciones); apagar `sessions` reactiva tokens revocados no vencidos;
+`hasMore` puede quedar corto si el `filter` base es más amplio que la `listRule`; macOS sin probar; el laboratorio no prueba TLS/HTTP2/proxy.
+
+**Resultados de la Ronda 9** (laboratorio completo con los módulos opcionales activados en el sandbox):
+- Windows 10 nativo: **1147 pasan, 0 fallan, 7 omitidas** (symlinks/FIFO/nombres con `\`, que Windows no permite crear). Linux (Ubuntu en WSL1): **1155 pasan, 0 fallan** (+ `tsc` omitido porque el `npx` visible es el de Windows).
+- Mutaciones: se rompió una defensa a la vez en 21 puntos (filtros, reglas de update/delete/creación, escritura desde GET, caché con etiquetas, páginas de error, i18n, acceso, sesiones, correo, validación de enteros, generador).
+  **21 detectadas**; una (T2, la comprobación «no se escribe desde un GET» dentro de `mutate`) no la detecta ninguna prueba porque es la **tercera capa** de la misma defensa (`pages.js` elimina `mutations` de los GET y `route()` aborta si un GET las declara): es defensa en profundidad inalcanzable por HTTP a propósito.
+  La mutación S3 (token anterior sin ligar a la sesión) no se detectaba al principio: se reforzó la prueba (segundo refresh con el token ya rotado) y ahora se detecta.
+- `pbmini:routes` usa una carpeta de datos propia (`pb_data_cli`) porque en Linux SQLite bloquea la principal mientras el servidor está abierto.

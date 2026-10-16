@@ -1,0 +1,1 @@
+{ "title": "Hello world", "greeting": "Hello, {name}!", "only_es_ok": "ok", "price": "Price: {amount} {currency}" }

@@ -1,0 +1,15 @@
+{
+  "compilerOptions": {
+    "checkJs": true,
+    "allowJs": true,
+    "noEmit": true,
+    "target": "es2020",
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "strict": false,
+    "noImplicitAny": false,
+    "types": [],
+    "lib": ["es2020"]
+  },
+  "include": ["pages/**/*.js", "cron/**/*.js", "pbmini.config.js", "types/**/*.d.ts"]
+}

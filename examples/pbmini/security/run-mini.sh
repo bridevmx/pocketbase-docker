@@ -9,10 +9,11 @@ trap 'stop; rm -rf "$W" "$W.bad.js" "$W.pages" "$W.env.sh"' EXIT
 setup(){ # $1 = directorio pages/ ; $2 = "data" para crear colecciones
   stop; rm -rf "$W"/*; mkdir -p "$W/outside" "$W/pb_data" "$W/pb_public/sub" "$W/pb_hooks"
   cp -r "$ROOT/pb_hooks/lib" "$ROOT/pb_hooks/views" "$W/pb_hooks/"; cp "$ROOT/pb_hooks/main.pb.js" "$W/pb_hooks/"; cp -a "$1" "$W/pb_hooks/pages"
+  if [[ $1 == "$HERE/mini/pages" ]]; then for d in i18n mails cron; do cp -a "$HERE/mini/$d" "$W/pb_hooks/"; done; cp "$HERE/mini/pbmini.config.js" "$W/pb_hooks/"; fi   # fixtures de los módulos opcionales (el lab los copia igual)
   echo TOP-SECRET-OUTSIDE > "$W/outside/secret.txt"; echo ENV=hunter2 > "$W/pb_public/.env"; echo pub > "$W/pb_public/pub.txt"; echo sub > "$W/pb_public/sub/a.txt"
   echo "<h1>idx</h1>" > "$W/pb_public/index.html"; ln -s "$W/outside/secret.txt" "$W/pb_public/link.txt"; ln -s "$W/outside" "$W/pb_public/dirlink"
   PBMINI_PUBLIC_AUDIT=warn "$PB" superuser upsert su@x.io 'Sup3rS3cret!!' --dir="$W/pb_data" >/dev/null 2>&1
-  (cd "$W" && PBMINI_STORE_MAX=500 PBMINI_PUBLIC_AUDIT=warn "$PB" serve --http=127.0.0.1:$PORT --dir="$W/pb_data" --publicDir="$W/pb_public" --hooksDir="$W/pb_hooks" >"$W/log" 2>&1 </dev/null) &
+  (cd "$W" && PBMINI_STORE_MAX=500 PBMINI_PUBLIC_AUDIT=warn PBMINI_ON_ERROR=warn "$PB" serve --http=127.0.0.1:$PORT --dir="$W/pb_data" --publicDir="$W/pb_public" --hooksDir="$W/pb_hooks" >"$W/log" 2>&1 </dev/null) &
   PID=$!; sleep 4
   if [[ ${2:-} == data ]]; then python3 -I "$HERE/setup-data.py" $PORT "$W.env.sh" || { echo "FAIL setup de datos"; exit 2; }; . "$W.env.sh"; fi; }
 ok(){ echo "ok   $1"; npass=$((npass+1)); }

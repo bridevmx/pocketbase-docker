@@ -17,7 +17,9 @@ Edita `pb_hooks/pages/**` y PocketBase se recarga solo (Linux/macOS). Con Docker
 ```
 pb_hooks/
   pages/
-    _layout.html              layout de todo el sitio ({{block "body" .}}); un _layout.html en una subcarpeta lo reemplaza ahí
+    _layout.html              layout de todo el sitio ({{block "body" .}}); en una subcarpeta lo reemplaza o lo extiende (ver Layouts anidados)
+    _error.html               página de error (el más cercano manda)
+    _schemas/paging.js        esquemas reutilizables (query: "paging")
     _partials/nav.html        parciales ({{define "nav"}}…{{end}}) disponibles en todas las páginas (≈ include de PHP)
     index.js + index.html     →  GET /                      (raíz; es la única que usa /{$})
     about.html                →  GET /about                 (solo .html = página estática pública)
@@ -29,6 +31,8 @@ pb_hooks/
     files/[...path]/index.js  →  GET /files/a/b/c           (comodín final: carpeta [...x] con solo index.*)
 pb_public/                    CSS/JS/imágenes estáticos (el CSP es estricto: nada de <style>/<script> inline)
 pb_migrations/                colecciones como código
+pb_hooks/i18n/ · mails/ · cron/ · pbmini.config.js   traducciones, correos, tareas y módulos opcionales (todo opcional)
+pb_hooks/types/pbmini.d.ts   tipos para el editor
 ```
 No hay `routes.js` global: **cada ruta, página o endpoint, es un archivo junto a las demás** (equivalente a `+page`/`+server` de SvelteKit).
 Un `.js` con `.html` renderiza la página; un `.js` sin `.html` es un endpoint (objeto → JSON, o `ctx.json/ctx.text/ctx.redirect`).
@@ -61,31 +65,111 @@ En la plantilla tienes `.Query` (query validada), `.Params` (params), `.User` (u
 **escapa automáticamente**; `raw`, `js` y `html` están prohibidos por el lint. Un HTML sin `{{define}}` se inserta como cuerpo del layout
 (el `{{block "body" .}}` del layout debe estar vacío); con `{{define}}` puedes redefinir `title`, `body`, etc.
 
-## API de `c`
+## API de `ctx`
 | | |
 |---|---|
 | `ctx.params`, `ctx.query`, `ctx.body` | params de ruta, query y body **ya validados** (objetos sin prototipo) |
-| `ctx.find(q, params, {sort,page,limit})`, `ctx.findOne(q, params)` | ejecutan una consulta declarada en `queries` (reglas de colección aplicadas) |
+| `ctx.find(q, params, {sort,page,limit,where})`, `ctx.findOne(q, params)` | ejecutan una consulta declarada en `queries` (reglas de colección aplicadas) |
+| `ctx.paginate(q, params, {where})` | paginación estándar con la opción `paginate` → `{items, page, perPage, hasMore}` |
+| `ctx.create(m, datos)`, `ctx.update(m, id, datos)`, `ctx.delete(m, id)`, `ctx.tx(fn)` | escrituras declaradas en `mutations` (reglas de colección aplicadas) y transacciones |
 | `ctx.json(o,code)`, `ctx.text(s,code)`, `ctx.redirect("/ruta",code)`, `ctx.notFound()`, `ctx.forbidden()` | respuestas (redirect solo a rutas relativas) |
 | `ctx.view(nombre, datos)` | plantilla de `pb_hooks/views/` |
 | `ctx.file(dirRelativo, ruta)` | sirve un archivo sin symlinks, dotfiles ni traversal |
 | `ctx.user` | registro autenticado (`null` en rutas con `cache`) |
+| `ctx.locale`, `ctx.t(clave, vars)` | idioma elegido y texto traducido (si existe `pb_hooks/i18n/`) |
+| `ctx.mail(plantilla, {to, data})` | correo con plantilla (`pb_hooks/mails/`) |
+| `ctx.can(permiso)`, `ctx.hasRole(rol)`, `ctx.membership()` | módulo opcional `access` |
+| `ctx.logout()`, `ctx.logoutEverywhere()`, `ctx.sessions()`, `ctx.revokeSession(id)` | cerrar sesión (siempre) y sesiones revocables (módulo opcional `sessions`) |
 
-Opciones de ruta: `auth`, `params`, `query`, `body` (POST/PUT/PATCH/DELETE), `queries`, `cache: {maxAge, server}`,
+Opciones de ruta: `auth`, `access`, `params`, `query`, `body` (POST/PUT/PATCH/DELETE), `queries`, `paginate`, `mutations`, `cache: {maxAge, server, tags}`,
 `bodyLimit`, `unknownQuery: "ignore"`. Cualquier opción desconocida (un typo) **aborta el arranque**.
+
+### Esquemas reutilizables
+`params`, `query` y `body` aceptan el **nombre** de un archivo de `pages/_schemas/<nombre>.js` (`module.exports = { page: {type:"int", min:1, max:100, default:1} }`):
+`query: "paging"`, `body: "post"`. Un nombre inexistente, un archivo que no exporta un objeto o un campo inválido abortan el arranque. `pbmini:new schema <nombre>` crea uno.
+
+### Paginación y filtros declarados
+```js
+paginate: { perPage: 20, maxPerPage: 50, sort: ["-created", "title"] },   // añade query page / perPage / sort (enum) al contrato de la ruta
+queries: { list: { collection: "posts", filter: "published = true", sort: ["-created", "title"], maxLimit: 100,
+                   filters: { slug: "slug = {:v}", author: "author = {:v}" } } },   // fragmentos CONSTANTES con un único {:v}
+get: (ctx) => ctx.json(ctx.paginate("list", {}, { where: { slug: ctx.query.slug } })),   // solo valores: se enlazan, nunca se concatenan
+```
+`ctx.paginate` devuelve `hasMore` calculado **solo con lo que el usuario puede ver**; no hay `total` a propósito (contarlo ignoraría las reglas de colección y
+revelaría cuántos registros ocultos existen). Mantén el `filter` base igual a la `listRule` para que las páginas no queden cortas.
+
+### Escrituras declaradas y transacciones
+```js
+mutations: { add: { collection: "todos", op: "create", fields: ["title", "done", "owner"] },     // lista blanca de campos (obligatoria)
+             setDone: { collection: "todos", op: "update", fields: ["done"] }, rm: { collection: "todos", op: "delete" } },
+post: (ctx) => ctx.json(ctx.tx((t) => { const a = t.create("add", { title: "a", done: false, owner: ctx.user.id }); t.update("setDone", a.id, { done: true }); return a; })),
+```
+Se aplican las reglas `createRule/updateRule/deleteRule` de la colección (la de creación con el registro guardado dentro de una transacción, como la API nativa; `update`/`delete`
+contra el registro **existente**, antes de modificar nada). Solo colecciones `base` (las cuentas se gestionan con la API nativa), nunca desde un GET, nunca
+campos `id/password/email/…`. `ctx.tx` revierte todo si algo falla (excepción o regla que niega); dentro solo existen `find/findOne/create/update/delete`.
+
+### Caché de servidor con etiquetas
+`cache: { maxAge: 60, server: true, tags: ["posts"] }`: al crear/actualizar/borrar un registro de `posts` (por **cualquier** vía, la API nativa incluida) se purgan esas entradas.
+Una etiqueta de colección inexistente (typo) hace que la ruta **no se cachee** en el servidor (falla hacia «sin caché»). La caché del navegador (`max-age`) no se puede invalidar.
+
+### Layouts anidados y páginas de error
+- `_layout.html` en una subcarpeta **reemplaza** al anterior (clásico) o lo **extiende** si define el slot del padre: slots por profundidad `body` → `inner` → `inner2`…
+  (`{{define "body"}}…{{block "inner" .}}{{end}}…{{end}}` en el hijo). Máx. 4 niveles; los datos de la página llegan a todos los niveles; las páginas con `{{define}}` pueden redefinir bloques (`title`…).
+  Un HTML sin `{{define}}` rellena el slot del layout más profundo.
+- `_error.html` (el más cercano manda) se usa para 400/404/414/422/500 de rutas con `.html` cuando el cliente acepta `text/html`; recibe solo `{{.Status}}` y `{{.Reason}}`
+  (nunca datos de la petición ni el texto del error). El 404 de una URL inexistente usa el de la raíz. Los endpoints responden siempre JSON. Los 401/403 de `auth` los genera PocketBase.
+
+### Internacionalización
+`pb_hooks/i18n/es.json`, `en.json`… (claves planas, textos con `{variables}`; mismas claves y variables en todos los idiomas o el arranque aborta).
+`ctx.t("clave", {name})`, `{{.T.clave}}` y `{{.Locale}}` en plantillas. El idioma sale **solo** de `Accept-Language` (validado y comparado con los archivos existentes); el predeterminado es
+`PBMINI_DEFAULT_LOCALE` o el primero alfabético. En rutas con caché el idioma forma parte de la clave y se envía `Vary: Accept-Language`.
+
+### Tareas programadas
+`pb_hooks/cron/<id>.js` → `module.exports = { schedule: "*/5 * * * *", run(app) { … } }` (5 campos numéricos validados o `@hourly`…). Se registran como `pbmini_<id>`;
+se ven y se lanzan en el panel (Ajustes → Crons) o con `POST /api/crons/pbmini_<id>`. `run` recibe `app` (no uses `$app` en el archivo: el lint lo marca).
+
+### Correo con plantillas
+`pb_hooks/mails/<nombre>.html` (cuerpo, autoescapado) + `<nombre>.subject.txt` (asunto de una línea con `{variables}`); `ctx.mail("nombre", { to, data })`.
+Un solo destinatario con validación estricta, remitente siempre el de Ajustes → Correo, nunca desde un GET, y límites por destinatario/hora y globales (`mail` en `pbmini.config.js`).
+
+### Módulos opcionales (apagados por defecto): `pb_hooks/pbmini.config.js`
+Sin el archivo nada cambia. Plantilla comentada: `pbmini.config.example.js`. Claves desconocidas o inválidas abortan el arranque.
+- **`access`** — roles y membresías. Solo **lee** campos que ya existen en tu colección de usuarios (no crea tablas).
+  `mode: "role"` (básico: nombre del campo + lista de roles) o `mode: "membership"` (roles, permisos por rol, permisos extra por usuario, planes con jerarquía `free < pro < team`,
+  vencimiento con días de gracia y estado suspendido). Rutas: `access: { role: "editor" }`, `{ permission: "posts.write" }`, `{ plan: "pro" }`, `{ any: [...] }`, `{ all: [...] }` (solo con `auth: "user"`).
+  Fail-closed: campo ausente, valor desconocido o fecha inválida = sin permiso / plan base; un plan de pago sin fecha vigente cuenta como vencido (402 `membership_expired`).
+  Protege **solo rutas de pbmini**: espeja las condiciones en las reglas de la colección (`@request.auth.plan = "pro"`) para la API nativa.
+- **`sessions`** — sesiones revocables sobre los tokens de PocketBase (`ctx.sessions()`, `ctx.revokeSession(id)`). Funciona en proyectos existentes: crea la colección interna
+  `pbmini_sessions` (solo superusuario), guarda `sha256(token)`, y `legacy: "allow"` respeta los tokens emitidos antes de activarlo. Límites: la API nativa sigue aceptando un token
+  revocado hasta que expire (para invalidarlo todo: `ctx.logoutEverywhere()`); dos JWT del mismo usuario emitidos en el mismo segundo son idénticos y comparten sesión; **apagar el módulo vuelve a aceptar los tokens revocados que no hayan expirado**.
+- Siempre disponibles (sin módulo): `ctx.logout()` (expira la cookie `pb_auth`) y `ctx.logoutEverywhere()` (cambia la `tokenKey` del usuario, invalida todos sus tokens), solo por POST y con CSRF.
+
+### Lo que NO añadimos (ya lo hace PocketBase)
+Verificación de correo, restablecer contraseña, cambio de correo, OTP/MFA y OAuth2 son endpoints y opciones nativas de la colección (`request-password-reset`, `auth-with-otp`, MFA, …):
+configúralos en el panel y llámalos con el SDK/formularios. Reimplementarlos duplicaría superficie de ataque (enumeración de usuarios, límites).
+
+### Generador y tipos
+```
+./pocketbase pbmini:new page blog/[slug]               # crea pages/blog/[slug]/index.js + index.html (auth: "user" por defecto)
+./pocketbase pbmini:new endpoint users/[id]/update post
+./pocketbase pbmini:new schema paging
+./pocketbase pbmini:routes                              # tabla de rutas en JSON (la usa el fuzzer guiado del laboratorio)
+```
+Nunca sobrescribe, no sale de `pages/` y aplica las mismas reglas de nombres que el cargador. `types/pbmini.d.ts` + `jsconfig.json` dan autocompletado y `checkJs`
+(`/** @type {import("../types/pbmini").Route} */`); una prueba de deriva del laboratorio falla si el código y los tipos se separan.
 
 ## Reglas de oro
 1. En `pages/` **solo** la API `c`. `$app`, `$os`, `$http`, `e.*`, `require` los bloquea `security/lint.sh` (CI).
 2. Nunca construyas filtros con texto del usuario: declara la consulta y pasa parámetros.
 3. Login, registro, escritura y límite de peticiones los hace PocketBase (SDK/API/ajustes). Mira la tabla de abajo antes de añadir nada.
-4. Prueba: `examples/pbmini/security/run-mini.sh /ruta/a/pocketbase` (suite bash) y `python examples/pbmini/lab/lab.py` (laboratorio en vivo, ~290 ataques con objetivo y meta).
+4. Prueba: `examples/pbmini/security/run-mini.sh /ruta/a/pocketbase` (suite bash) y `python examples/pbmini/lab/lab.py` (laboratorio en vivo, ~1000 pruebas con objetivo y meta).
 
 ## Qué hace PocketBase y qué añade pbmini (no reinventamos la rueda)
 | Tema | Lo hace PocketBase (nativo) | pbmini |
 |---|---|---|
 | Login, registro, OAuth, OTP | API/SDK (`authWithPassword`…) | **nada** |
 | Sesión | token JWT sin estado; cambiar la contraseña lo revoca | lee la cookie `pb_auth` del SDK y **PocketBase valida el token** (`findAuthRecordByToken`); `record` de la cookie se ignora |
-| Escrituras (crear/editar/borrar) | API REST + `createRule`/`updateRule` + validación de campos | **nada**: usa el SDK desde el navegador o la API |
+| Escrituras (crear/editar/borrar) | API REST + `createRule`/`updateRule` + validación de campos | `mutations` declaradas con lista blanca de campos: aplican **las mismas reglas**; el SDK/API siguen valiendo |
 | Reglas de acceso | `listRule`/`viewRule`… en la API REST | en consultas del servidor aplica **la misma regla** con `canAccessRecord` (patrón de la doc) |
 | Límite de peticiones | limitador nativo (Settings > Rate limiting); **sí aplica a rutas de hooks** (verificado) | **nada**; la migración `1700000100_rate_limits.js` lo activa; avisa al arrancar si está apagado |
 | Auth por ruta | `$apis.requireAuth()`/`requireSuperuserAuth()`, `bodyLimit` | los usa como middleware; obliga a declarar `auth` |

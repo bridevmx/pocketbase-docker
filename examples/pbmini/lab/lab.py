@@ -78,7 +78,7 @@ def provision(pb_arg):
     return exe
 
 
-def build_sandbox(root, pages, symlinks=True, clean=False, public=None, hooks_extra=None, i18n=None):
+def build_sandbox(root, pages, symlinks=True, clean=False, public=None, hooks_extra=None, i18n=None, fixtures=None):
     """Árbol aislado: pb_data / pb_public / pb_hooks. clean=True: pb_public sin señuelos (para pruebas de arranque).
     public: {ruta: contenido | ("link", destino) | ("fifo",)} extra en pb_public. Devuelve True si se pudieron crear symlinks."""
     shutil.rmtree(root, ignore_errors=True)
@@ -89,10 +89,13 @@ def build_sandbox(root, pages, symlinks=True, clean=False, public=None, hooks_ex
     shutil.copy(os.path.join(ROOT, "pb_hooks", "main.pb.js"), hooks)
     if pages: shutil.copytree(pages, os.path.join(hooks, "pages"), symlinks=True)
     if i18n: shutil.copytree(i18n, os.path.join(hooks, "i18n"))
+    if fixtures:   # security/mini/{i18n,mails,cron} y pbmini.config.js: módulos opcionales del sandbox principal
+        for sub in ("mails", "cron"):
+            if os.path.isdir(os.path.join(fixtures, sub)): shutil.copytree(os.path.join(fixtures, sub), os.path.join(hooks, sub))
+        if os.path.isfile(os.path.join(fixtures, "pbmini.config.js")): shutil.copy(os.path.join(fixtures, "pbmini.config.js"), hooks)
     for rel, txt in (hooks_extra or {}).items():   # archivos extra de pb_hooks/ (i18n/, mails/, cron/, pbmini.config.js...)
         full = os.path.join(hooks, rel); os.makedirs(os.path.dirname(full), exist_ok=True)
-        with open(full, "w", newline="
-", encoding="utf-8") as f: f.write(txt)
+        with open(full, "w", newline="\n", encoding="utf-8") as f: f.write(txt)
     def w(p, txt):
         full = os.path.join(root, p); os.makedirs(os.path.dirname(full), exist_ok=True)
         with open(full, "w", newline="\n", encoding="utf-8") as f: f.write(txt)
@@ -170,6 +173,9 @@ def seed(port):
     api(port, "POST", "/api/collections", dict(name="todos", type="base", listRule="owner = @request.auth.id", viewRule="owner = @request.auth.id",
         createRule='@request.auth.id != "" && @request.body.owner = @request.auth.id', updateRule="owner = @request.auth.id", deleteRule="owner = @request.auth.id",
         fields=[txt("title"), dict(name="done", type="bool"), txt("owner"), dict(name="created", type="autodate", onCreate=True)]), su)
+    users = api(port, "GET", "/api/collections/users", None, su)   # campos de membresía (los lee el módulo access de pbmini)
+    api(port, "PATCH", "/api/collections/users", dict(fields=users["fields"] + [
+        dict(name="roles", type="select", values=["editor", "admin", "viewer", "ghost"], maxSelect=4), txt("perms"), txt("plan"), dict(name="plan_expires", type="date"), txt("status")]), su)
     ids = {}
     for t, sl, s, pub in (("hello", "hello", "S-1", True), ("world", "world", "S-2", True), ("private-draft", "private-draft", "TOPSECRET-DRAFT", False),
                           ("<script>alert(1)</script>", "xss-post", "S-3", True)):
@@ -418,6 +424,8 @@ def catalog(ctx):
     cases.extend(attacks_deep.build(sys.modules[__name__], ctx, attacks))
     import attacks_v2
     cases.extend(attacks_v2.build(sys.modules[__name__], ctx, attacks))
+    import attacks_guided
+    cases.extend(attacks_guided.build(sys.modules[__name__], ctx, attacks, attacks_v2.routes_table))
 
     # J. Sesión / JWT / CSRF
     cat = "J · Sesión, JWT y CSRF"
@@ -628,9 +636,9 @@ class Lab:
             # archivos con nombres problemáticos (solo se pueden crear en Linux/macOS): barra invertida, %, NFD, salto de línea, tabulador, bidi, FIFO
             unix_public = {} if IS_WIN else {"pipe": ("fifo",), "back" + chr(92) + "slash.txt": "DOTCANARY:back", "100%.txt": "DOTCANARY:pct", "e" + chr(0x301) + ".txt": "DOTCANARY:nfd",
                                               "newline" + chr(10) + "name.txt": "DOTCANARY:nl", "tab" + chr(9) + "name.txt": "DOTCANARY:tab", chr(0x202e) + "txt.exe": "DOTCANARY:bidi"}
-            links = build_sandbox(root, os.path.join(SEC, "mini", "pages"), public=unix_public, i18n=os.path.join(SEC, "mini", "i18n"))
+            links = build_sandbox(root, os.path.join(SEC, "mini", "pages"), public=unix_public, i18n=os.path.join(SEC, "mini", "i18n"), fixtures=os.path.join(SEC, "mini"))
             log(f"sandbox aislado creado ({'con' if links else 'SIN'} symlinks; {'' if links else 'Windows sin privilegio de symlink: se omiten 2 casos'})")
-            pb = PB(self.exe, root, PB_PORT, env={"PBMINI_PUBLIC_AUDIT": "warn", "PBMINI_DEBUG": "1"}); pb.serve()
+            pb = PB(self.exe, root, PB_PORT, env={"PBMINI_PUBLIC_AUDIT": "warn", "PBMINI_DEBUG": "1", "PBMINI_ON_ERROR": "warn"}); pb.serve()
             if not pb.wait_ready(): raise RuntimeError("PocketBase no arrancó:\n" + pb.log()[-800:])
             ver = subprocess.run([self.exe, "--version"], capture_output=True, text=True).stdout.strip().split("version")[-1].strip()
             ctx = seed(PB_PORT); ctx.update(port=PB_PORT, _symlinks=links, exe=self.exe, root=root)

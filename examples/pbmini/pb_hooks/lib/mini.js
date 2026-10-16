@@ -330,10 +330,39 @@ function mutate(app, e, route, name, op, id, data) {
   return op === "delete" ? { id: rec.id } : rec.publicExport();
 }
 
+const i18n = () => require(`${__hooks}/lib/i18n.js`);
+const mod = (n) => require(`${__hooks}/lib/${n}.js`); // access, sessions, mail, config, cron (módulos opcionales; apagados por defecto)
+// ---- páginas de error: solo rutas con .html y clientes que aceptan text/html; el contenido es fijo (Status/Reason), nunca datos de la petición ----
+const REASONS = { 400: "Bad Request", 401: "Unauthorized", 402: "Payment Required", 403: "Forbidden", 404: "Not Found", 414: "URI Too Long", 422: "Unprocessable Entity", 429: "Too Many Requests", 500: "Internal Server Error" };
+function wantsHtml(e) {
+  const a = e.request.header.get("Accept");
+  if (!a || a.length > 1024) return false;
+  return a.split(",", 16).some((p) => { const m = /^\s*text\/html\s*(?:;(.*))?$/i.exec(p); if (!m) return false; const q = /(?:^|;)\s*q\s*=\s*([0-9.]+)/i.exec(m[1] || ""); return !q || Number(q[1]) > 0; });
+}
+function errorPage(e, route, code) {
+  const pg = route && route.page;
+  if (!pg || !pg.html || !pg.error || !wantsHtml(e)) return null;
+  try {
+    const html = $template.loadFiles(pg.error, ...pg.partials).render({ Status: code, Reason: REASONS[code] || "Error" });
+    e.response.header().set("Vary", "Accept");
+    return e.blob(code, "text/html; charset=utf-8", toBytes(html));
+  } catch (err) { $app.logger().error("pbmini error page", "route", route.key, "error", String(err)); return null; } // plantilla rota: JSON clásico
+}
+
 function buildContext(e, route, params, q, b, state) {
   const anon = !!route.opts.cache;
   const ctx = {
     params, query: q, body: b,
+    locale: state.locale || null,
+    can: (permission) => mod("access").can(e, permission),
+    hasRole: (role) => mod("access").hasRole(e, role),
+    membership: () => mod("access").membership(e),
+    mail: (name, opt) => mod("mail").send(e, route, name, opt),
+    logout: () => mod("sessions").logout(e, route),
+    logoutEverywhere: () => mod("sessions").logoutEverywhere(e, route),
+    sessions: () => mod("sessions").list(e),
+    revokeSession: (id) => mod("sessions").revoke(e, route, id),
+    t: (key, vars) => { if (!state.locale) throw new Error("pbmini: i18n no configurado (crea pb_hooks/i18n/<idioma>.json)"); return i18n().t(state.locale, key, vars); },
     user: anon ? null : e.auth, // una ruta cacheable no puede personalizar
     escape: (s) => String(s).replace(/[&<>"'`]/g, (ch) => "&#" + ch.charCodeAt(0) + ";"),
     json: (o, code) => reply(code || 200, "application/json; charset=utf-8", JSON.stringify(o)),
@@ -349,16 +378,18 @@ function buildContext(e, route, params, q, b, state) {
       if (!pg || !pg.html) throw new Error("pbmini: esta ruta no tiene plantilla .html");
       const rd = (f) => toString($os.readFile(f));
       const body = rd(pg.html), hasDef = /\{\{-?\s*define\s/.test(body);
+      const chain = pg.layouts && pg.layouts.length ? pg.layouts : (pg.layout ? [pg.layout] : []); // raíz -> hoja
       let tpl;
       // loadFiles parsea cada archivo por separado (permite que la página redefina bloques del layout);
       // en una sola cadena Go rechaza redefinir un {{block}} con contenido por defecto.
-      if (!pg.layout) {
+      if (!chain.length) {
         if (hasDef) throw new Error("pbmini: la página usa {{define}} pero no hay _layout.html");
         tpl = $template.loadFiles(pg.html, ...pg.partials);
-      } else if (hasDef) tpl = $template.loadFiles(pg.layout, ...pg.partials, pg.html);
-      else tpl = $template.loadString(rd(pg.layout) + pg.partials.map(rd).join("") + '{{define "body"}}' + body + "{{end}}"); // HTML plano => cuerpo (el bloque body del layout debe estar vacío)
+      } else if (hasDef) tpl = $template.loadFiles(chain[0], ...pg.partials, ...chain.slice(1), pg.html);
+      else tpl = $template.loadString(rd(chain[0]) + pg.partials.map(rd).join("") + chain.slice(1).map(rd).join("") + `{{define "${pg.slot || "body"}"}}` + body + "{{end}}"); // HTML plano => slot del layout más profundo (los bloques con contenido por defecto no se redefinen)
       const d = Object.assign({}, data || {});
       d.Query = Object.assign({}, q); d.Params = Object.assign({}, params); d.User = ctx.user ? ctx.user.publicExport() : null;
+      if (state.locale) { d.T = i18n().table(state.locale); d.Locale = state.locale; }
       return reply(200, "text/html; charset=utf-8", tpl.render(d));
     },
     unsafeHtml: (s, code) => reply(code || 200, "text/html; charset=utf-8", String(s)),
@@ -443,6 +474,8 @@ function safeFileTarget(base, rel) {
 // ---- carga perezosa por runtime + registro atómico fail-closed ---------------
 let loaded = false;
 const exists = (f) => { try { $os.stat(f); return true; } catch (_) { return false; } };
+let rootError = null; // pages/_error.html raíz (para el 404 nativo); lo fija pages.js
+function setRootError(o) { rootError = o; }
 function load() {
   if (loaded) return; loaded = true;
   if (exists(`${__hooks}/pages`)) require(`${__hooks}/lib/pages.js`)(module.exports);
@@ -500,6 +533,20 @@ function guardPaths(e) {
   if (isStatic) {
     const rel = segs.filter((x) => x !== "").join("/").toLowerCase(), links = pubScan().links;
     for (let i = 0; i < links.length; i++) if (rel === links[i] || rel.indexOf(links[i] + "/") === 0) return deny();
+    // 404 nativo de la ruta estática (ninguna ruta ni archivo): si el cliente acepta HTML y existe pages/_error.html, se responde con esa página
+    try { return e.next(); } catch (err) {
+      if (err && err.value && err.value.status === 404) {
+        load();
+        const h = e.response.header();
+        if (rootError && wantsHtml(e)) { // las cabeceras van antes de escribir la respuesta
+          for (const k in SEC_HEADERS) h.set(k, SEC_HEADERS[k]);
+          h.set("Cache-Control", "no-store");
+          const r = errorPage(e, { key: "404", page: { html: true, error: rootError.error, partials: rootError.partials } }, 404);
+          if (r) return r;
+        }
+      }
+      throw err;
+    }
   }
   return e.next();
 }
@@ -535,10 +582,13 @@ function auditPublic() {
   else throw new Error(msg + " (retíralos, o PBMINI_PUBLIC_AUDIT=warn|off solo en desarrollo)");
 }
 function cookieAuth(e) {
+  let tok = null;
   if (!e.auth) {
     const t = sessionToken(e);
-    if (t && csrfOk(e)) { try { e.auth = $app.findAuthRecordByToken(t, "auth"); } catch (_) { /* inválido/expirado/revocado => anónimo */ } }
-  }
+    if (t && csrfOk(e)) { try { e.auth = $app.findAuthRecordByToken(t, "auth"); tok = t; } catch (_) { /* inválido/expirado/revocado => anónimo */ } }
+  } else tok = String(e.request.header.get("Authorization") || "").replace(/^Bearer\s+/i, "").trim() || null;
+  // sesiones revocables (módulo opcional): un token cuya sesión fue revocada deja de valer en las rutas de pbmini
+  if (e.auth && tok && !mod("sessions").verify(e, tok)) e.auth = null;
   return e.next();
 }
 
@@ -546,6 +596,18 @@ function register() {
   try {
     load();
     auditPublic();
+    i18n().load(); // valida pb_hooks/i18n/*.json (claves y {variables} iguales en todos los idiomas)
+    const conf = mod("config").load(); // pbmini.config.js (todo apagado por defecto)
+    mod("mail").validate();
+    mod("cron").jobs().forEach((j) => { // el cuerpo de cada tarea se serializa y corre en una VM aislada: el id (validado ^[a-z0-9_]+$) va como literal
+      const fn = eval("(() => require(__hooks + '/lib/cron.js').run(" + JSON.stringify(j.id) + "))");
+      cronAdd("pbmini_" + j.id, j.schedule, fn);
+    });
+    if (conf.sessions.enabled) {
+      onRecordAuthRequest((e) => { require(`${__hooks}/lib/sessions.js`).track(e); return e.next(); }, conf.sessions.collection);
+      cronAdd("pbmini_sessions_gc", "17 3 * * *", () => require(`${__hooks}/lib/sessions.js`).gc($app));
+    }
+    $app.onServe().bindFunc((e) => { require(`${__hooks}/lib/mini.js`).onServe(); return e.next(); });
     routerUse(new Middleware((e) => require(`${__hooks}/lib/mini.js`).guardPaths(e), -1100, "pbmini_paths"));
     for (const k in table) {
       const r = table[k];
@@ -581,9 +643,13 @@ function dispatch(e) {
   const h = e.response.header();
   for (const k in SEC_HEADERS) h.set(k, SEC_HEADERS[k]);
   h.set("Cache-Control", "no-store"); // por defecto; reply()/file() lo relajan sólo si la ruta lo declaró
-  const fail = (code, msg, extra) => e.json(code, Object.assign({ error: msg }, extra || {}));
+  const fail = (code, msg, extra) => errorPage(e, route, code) || e.json(code, Object.assign({ error: msg }, extra || {}));
   if (!route) return fail(404, "not found");
   try {
+    if (route.opts.access) { // roles / membresías (módulo opcional): antes de leer parámetros, consulta o cuerpo
+      const v = mod("access").check(e, route.opts.access);
+      if (v) return fail(v.status, v.status === 402 ? "payment required" : v.status === 401 ? "unauthorized" : "forbidden", { code: v.code });
+    }
     const params = validateParams(e, route);
     if (!params) return fail(404, "not found");
     const pq = parseQuery(e, route);
@@ -591,9 +657,13 @@ function dispatch(e) {
     const pb = parseBody(e, route);
     if (pb.err) return fail(400, "invalid body", pb.field ? { field: pb.field } : undefined);
     const state = {};
+    if (i18n().enabled()) { // solo Accept-Language, validado contra los archivos existentes; las rutas cacheables lo incluyen en la clave
+      state.locale = i18n().negotiate(e.request.header.get("Accept-Language"));
+      if (route.opts.cache && i18n().multi()) h.set("Vary", "Accept-Language");
+    }
     if (route.opts.cache && route.opts.cache.server && !hasCreds(e)) {
       // clave = sólo valores validados y declarados (nunca URL cruda, Host ni cabeceras)
-      state.cacheKey = JSON.stringify([route.key, route.params.map((p) => params[p.name]), Object.keys(route.query).map((n) => (pq.q[n] === undefined ? null : pq.q[n]))]);
+      state.cacheKey = JSON.stringify([route.key, route.params.map((p) => params[p.name]), Object.keys(route.query).map((n) => (pq.q[n] === undefined ? null : pq.q[n])), state.locale || null]);
       const hit = cacheGet(state.cacheKey);
       if (hit) {
         h.set("Cache-Control", cacheControl(route, 200, false)); h.set("ETag", hit.tag);
@@ -611,7 +681,7 @@ function dispatch(e) {
   }
 }
 
-const OPT_KEYS = ["auth", "params", "query", "body", "queries", "cache", "bodyLimit", "unknownQuery", "allowSystemPrefix", "prefix", "paginate", "mutations"];
+const OPT_KEYS = ["auth", "params", "query", "body", "queries", "cache", "bodyLimit", "unknownQuery", "allowSystemPrefix", "prefix", "paginate", "mutations", "access"];
 const NAME_RE = /^[A-Za-z_][A-Za-z0-9_]{0,31}$/, COLL_RE = /^[A-Za-z][A-Za-z0-9_]{0,63}$/, FIELD_RE = /^[A-Za-z_][A-Za-z0-9_]{0,63}$/;
 function route(method, pattern, opts, handler, internal) {
   if (typeof opts === "function") { handler = opts; opts = {}; }
@@ -644,6 +714,10 @@ function route(method, pattern, opts, handler, internal) {
     qspec.perPage = { type: "int", min: 1, max: pgn.maxPerPage, default: pgn.perPage };
     if (pgn.sort) qspec.sort = { enum: pgn.sort.slice(), default: pgn.sort[0] };
   }
+  if (opts.access !== undefined) { // roles / membresías: solo para rutas de usuario, validado contra pbmini.config.js
+    if (opts.auth !== "user") fail("access requiere auth:'user'");
+    mod("access").validateSpec(opts.access, fail);
+  }
   const query = compileSchema(qspec, fail), body = compileSchema(opts.body, fail);
   for (const k in query) if (query[k].type === "string" && query[k].max > 1000) fail(`límite de ${k} excesivo`);
   if (opts.body && (method === "GET")) fail("GET no admite body");
@@ -652,7 +726,7 @@ function route(method, pattern, opts, handler, internal) {
     const d = opts.queries[name];
     if (!/^[A-Za-z_][A-Za-z0-9_]{0,31}$/.test(name) || RESERVED.indexOf(name) >= 0) fail(`nombre de consulta inválido: ${name}`);
     if (!d || typeof d.filter !== "string" || typeof d.collection !== "string") fail(`consulta ${name}: requiere collection y filter (string constante)`);
-    if (!/^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(d.collection)) fail(`consulta ${name}: colección no permitida (las de sistema "_xxx" están vetadas)`);
+    if (!/^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(d.collection) || /^pbmini_/i.test(d.collection)) fail(`consulta ${name}: colección no permitida (las de sistema "_xxx" y las internas "pbmini_xxx" están vetadas)`);
     if (d.filter.length > 400 || CTRL.test(d.filter)) fail(`consulta ${name}: filtro inválido`);
     const ph = []; d.filter.replace(/\{:([A-Za-z_][A-Za-z0-9_]*)\}/g, (_, n) => { if (ph.indexOf(n) < 0) ph.push(n); return ""; });
     const stray = d.filter.replace(/\{:[A-Za-z_][A-Za-z0-9_]*\}/g, "");
@@ -684,7 +758,7 @@ function route(method, pattern, opts, handler, internal) {
       if (!NAME_RE.test(name) || RESERVED.indexOf(name) >= 0) fail(`mutación con nombre inválido: ${name}`);
       if (!m || typeof m !== "object") fail(`mutación ${name}: definición inválida`);
       Object.keys(m).forEach((k) => { if (["collection", "op", "fields"].indexOf(k) < 0) fail(`mutación ${name}: opción desconocida "${k}"`); });
-      if (typeof m.collection !== "string" || !COLL_RE.test(m.collection)) fail(`mutación ${name}: colección no permitida (las de sistema "_xxx" están vetadas)`);
+      if (typeof m.collection !== "string" || !COLL_RE.test(m.collection) || /^pbmini_/i.test(m.collection)) fail(`mutación ${name}: colección no permitida (las de sistema "_xxx" y las internas "pbmini_xxx" están vetadas)`);
       if (["create", "update", "delete"].indexOf(m.op) < 0) fail(`mutación ${name}: op debe ser create|update|delete`);
       if (m.op === "delete") { if (m.fields !== undefined) fail(`mutación ${name}: delete no lleva fields`); }
       else {
@@ -699,7 +773,7 @@ function route(method, pattern, opts, handler, internal) {
   if (c) {
     if (c.tags !== undefined) {
       if (!c.server) fail("cache.tags requiere cache.server (no hay nada que invalidar en la caché del navegador)");
-      if (!Array.isArray(c.tags) || c.tags.length === 0 || c.tags.length > 8 || c.tags.some((t) => typeof t !== "string" || !COLL_RE.test(t))) fail("cache.tags debe ser una lista de 1..8 nombres de colección");
+      if (!Array.isArray(c.tags) || c.tags.length === 0 || c.tags.length > 8 || c.tags.some((t) => typeof t !== "string" || !COLL_RE.test(t) || /^pbmini_/i.test(t))) fail("cache.tags debe ser una lista de 1..8 nombres de colección");
     }
     Object.keys(c).forEach((k) => { if (["maxAge", "server", "shared", "tags"].indexOf(k) < 0) fail(`cache: opción desconocida "${k}"`); });
     if (method !== "GET") fail("cache sólo en GET");
@@ -718,6 +792,15 @@ function route(method, pattern, opts, handler, internal) {
 }
 
 // No hay registro global de rutas (routes.js): cada ruta es un archivo de pages/ (lib/pages.js llama a route()).
+// Al servir (tras las migraciones): crea la colección de sesiones si hace falta y comprueba que los campos de acceso existan.
+function onServe() {
+  const warnOnly = $os.getenv("PBMINI_ON_ERROR") === "warn";
+  const attempt = (label, fn) => { try { fn(); } catch (err) { console.log(`pbmini: ${label}: ${String(err)}`); if (!warnOnly) $os.exit(1); } };
+  const conf = mod("config").load();
+  if (conf.sessions.enabled) attempt("sessions", () => mod("sessions").ensure($app));
+  if (conf.access.enabled) attempt("access", () => mod("access").validateSchema($app));
+}
+
 // Tabla de rutas como datos puros (sin funciones): la consumen pbmini:routes, el fuzzer guiado por definiciones y la prueba de tipos.
 function routeTable() {
   load();
@@ -729,10 +812,10 @@ function routeTable() {
       params: r.params.map((p) => ({ name: p.name, wildcard: p.wildcard, spec: r.paramTypes[p.name] ? describeField(r.paramTypes[p.name]) : null })),
       query: fields(r.query), body: fields(r.body), queries: Object.keys(r.queries),
       cache: c ? { maxAge: c.maxAge, server: !!c.server, tags: c.tags || [] } : null,
-      paginate: r.opts.paginate || null, mutations: Object.keys(r.mutations).map((n) => ({ name: n, collection: r.mutations[n].collection, op: r.mutations[n].op, fields: r.mutations[n].fields })), bodyLimit: r.opts.bodyLimit || DEFAULTS.bodyLimit,
+      access: r.opts.access || null, paginate: r.opts.paginate || null, mutations: Object.keys(r.mutations).map((n) => ({ name: n, collection: r.mutations[n].collection, op: r.mutations[n].op, fields: r.mutations[n].fields })), bodyLimit: r.opts.bodyLimit || DEFAULTS.bodyLimit,
       unknownQuery: r.opts.unknownQuery || "reject", html: !!(r.page && r.page.html),
     };
   });
 }
 
-module.exports = { dispatch, register, route, cookieAuth, guardPaths, routeTable, invalidate: invalidateTag };
+module.exports = { setRootError, onServe, dispatch, register, route, cookieAuth, guardPaths, routeTable, invalidate: invalidateTag };
