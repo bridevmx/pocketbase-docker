@@ -204,3 +204,30 @@ y a veces la deja intacta (falso fallo intermitente). Ahora se altera el primer 
 # Ronda 6: nombres declarativos del contexto
 `c` → **`ctx`**, y sus campos sin abreviar: `ctx.q` → `ctx.query`, `ctx.b` → `ctx.body`, `ctx.auth` → `ctx.user`, `ctx.esc` → `ctx.escape`.
 En plantillas: `.Q` → `.Query`, `.P` → `.Params` (`.User` no cambia). Se eliminó el alias `c`. No se usa `e` a propósito: es el evento crudo de PocketBase y el lint lo bloquea en `pages/`.
+
+---
+# Ronda 7: fase de ataques contra el framework (lab, categorías S1–S16)
+
+Alcance: solo pbmini (la API nativa `/api/*` queda fuera). 184 ataques con patrones habituales de atacantes, ejecutados en vivo contra PocketBase 0.40.5
+(`python examples/pbmini/lab/lab.py --only S`): tampering de métodos (10 métodos × 7 rutas protegidas), bypass de auth (cabeceras/cookies/tokens en lugar equivocado,
+dobles `Authorization`/`pb_auth`), CSRF (8 variantes de cabeceras × 4 Content-Type), cuerpos y Content-Type hostiles, 128 variantes de normalización de rutas (32 × 4 rutas protegidas), 33 destinos de
+open redirect, XSS/SSTI reflejado y almacenado (verificado **parseando el HTML devuelto**, no con regex), inyección (52 payloads × 10 puntos de entrada), Unicode, reconocimiento
+(55 rutas clásicas), traversal y trucos de Windows en `ctx.file`, Host/proxy/CORS, 27 ataques de protocolo crudo (smuggling, TE/CL, obs-fold, HTTP/0.9, h2c), Slowloris,
+carga concurrente, ReDoS, aislamiento entre usuarios con 300 peticiones intercaladas y fuzzing de 1500 peticiones (semilla fija).
+
+Resultado inicial: 38 fallos que se redujeron a **4 hallazgos reales** (el resto eran expectativas mías demasiado estrictas o detectores torpes). Todos corregidos y verificados con el mismo ataque:
+
+| # | Hallazgo | Impacto | Corrección |
+|---|---|---|---|
+| 1 | **CSRF solo con `Sec-Fetch-Site`**: un POST con cookie y `Origin: https://evil` sin esa cabecera (navegadores sin Fetch Metadata) se aceptaba | Escritura con la sesión de la víctima | `csrfOk` exige además que `Origin` (o `Referer` si falta) coincida con el `Host`; `Origin: null` se rechaza. Tras un proxy debe reenviarse el `Host` original |
+| 2 | **Dotfiles servidos por el `publicDir` nativo** (`/.env`, `/.git/config` devolvían 200 con contenido) | Fuga de secretos desplegados en `pb_public` | Middleware global `pbmini_dotfiles`: 404 `no-store` a cualquier ruta con un segmento que empiece por `.` (salvo `/.well-known/`) |
+| 3 | **JSON laxo**: `{"n":1}x` y dos documentos pegados se aceptaban (Go ignora lo que sigue al primer valor) | Diferencial parser/WAF (smuggling de campos) | El JSON se parsea con `JSON.parse` estricto sobre el cuerpo crudo; array/null/escalar en la raíz → 400 |
+| 4 | **Comodines aceptaban UTF-8 inválido y caracteres de engaño** (`%C0%AE%C0%AE` overlong, U+FF0F `／`, bidi, ZWSP) | Evasión de filtros aguas abajo / best-fit de Windows | `SEG_BAD` rechaza U+FFFD, invisibles, bidi y barras/puntos de ancho completo |
+
+Observaciones aceptadas (no son fallos, quedan documentadas):
+- **Claves duplicadas** `{"n":1,"n":2}`: gana la última (igual que Go y `JSON.parse`); un WAF que lea la primera vería otra cosa. No se puede detectar sin parser propio.
+- **`-0`** se normaliza a 0; `charset=utf-7` se ignora (el cuerpo se lee siempre como UTF-8); un adjunto multipart no declarado se descarta.
+- **`501`/`505`** ante `Transfer-Encoding` desconocido o `HTTP/9.9` son el rechazo estándar de Go.
+- **Rendimiento**: con 64 conexiones simultáneas la latencia sube (mediciones en Windows: ~70 req/s en serie, p95 de 4-5 s con 600 peticiones en ráfaga) pero sin errores y con recuperación inmediata. Ajusta `--hooksPool`, el limitador nativo y el proxy.
+- **Symlinks** en `pb_public` siguen sin bloquearse en el servidor nativo (hace falta auditar en CI; `ctx.file` sí los rechaza).
+- **No cubierto**: carreras TOCTOU de symlinks, canales de tiempo, TLS/HTTP2 (dependen del proxy), y los 26 vectores de la API nativa de `VECTORS.md` (grupo A).

@@ -8,9 +8,10 @@ el panel muestra en vivo si la meta se cumple. Un detector global busca secretos
 python examples/pbmini/lab/lab.py              # panel http://127.0.0.1:8099 + ejecución automática
 python examples/pbmini/lab/lab.py --headless   # consola, exit 1 si alguna meta falla (útil en CI)
 python examples/pbmini/lab/lab.py --pb RUTA    # usar tu propio binario
+python examples/pbmini/lab/lab.py --headless --only S   # solo la fase de ataques
 ```
 Solo biblioteca estándar de Python 3.8+. Categorías: A archivos/rutas · B query · C body · D filtros/ACL · E caché · H páginas · J sesión/JWT/CSRF ·
-K carpetas por parámetro y endpoints · N API nativa de PocketBase · R límite de peticiones · F fail-closed al arrancar (archivos inseguros en `pages/`) · L lint.
+S1–S16 ataques contra el framework (`attacks.py`: métodos, auth, CSRF, cuerpos, rutas, redirects, XSS/SSTI, inyección, Unicode, reconocimiento, archivos, Host/CORS, protocolo crudo, DoS, concurrencia, fuzzing) · K carpetas por parámetro y endpoints · N API nativa de PocketBase · R límite de peticiones · F fail-closed al arrancar (archivos inseguros en `pages/`) · L lint.
 El sandbox arranca con `--indexFallback=false` (URL inexistente = 404 real).
 
 ## Qué NO demuestra

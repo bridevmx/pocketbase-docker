@@ -20,6 +20,7 @@ CACHE = os.path.join(HERE, ".cache")
 RUN = os.path.join(HERE, ".run")
 PB_PORT, BAD_PORT, UI_PORT = 8097, 8098, 8099
 PB_VERSION = "0.40.5"
+PATHLEAKS = ["pb_hooks", "\\Users\\", "goja", "GoError"]
 LEAKS = ["TOPSECRET", "hunter2", "TOP-SECRET-OUTSIDE", "SECRET-PAGE-LEAK", "passwordHash", "tokenKey", "Sup3rS3cret"]
 SU_MAIL, SU_PASS = "su@x.io", "Sup3rS3cret!!"
 
@@ -147,6 +148,9 @@ def seed(port):
     for t, sl, s, pub in (("hello", "hello", "S-1", True), ("world", "world", "S-2", True), ("private-draft", "private-draft", "TOPSECRET-DRAFT", False),
                           ("<script>alert(1)</script>", "xss-post", "S-3", True)):
         ids[t] = api(port, "POST", "/api/collections/posts/records", dict(title=t, slug=sl, secret=s, published=pub), su)["id"]
+    for t, sl in (("{{7*7}}", "ssti-1"), ("${7*7}<%= 7*7 %>", "ssti-2"), ('"><img src=x onerror=alert(1)>', '"><script>alert(1)</script>'), ("javascript:alert(1)", "javascript:alert(1)"),
+                  ("x\" onmouseover=\"alert(1)", "x\" onmouseover=\"alert(1)"), ("<svg/onload=alert(1)>", "'><svg/onload=alert(1)>")):   # datos hostiles ya guardados en la base
+        api(port, "POST", "/api/collections/posts/records", dict(title=t, slug=sl, secret="S-X", published=True), su)
     api(port, "POST", "/api/collections/vault/records", dict(note="VAULT-NOTE"), su)
     ctx = {"TOKSU": su, "PUBID": ids["hello"], "PRIVID": ids["private-draft"]}
     for u in ("a", "b"):
@@ -382,6 +386,9 @@ def catalog(ctx):
     add(nid("K"), cat, "Endpoint solo-POST pedido por GET", "404/405", f"/users/{UID}/update", st=(404, 405))
     add(nid("K"), cat, "CSRF en endpoint de carpeta con cookie cross-site", "401", f"/users/{UID}/update", m="POST", h={**ck(ctx["TOKA"]), **J, "Sec-Fetch-Site": "cross-site"}, d='{"name":"ana"}', st=401)
 
+    import attacks   # fase de ataques contra el framework (ver attacks.py); antes de J porque J revoca el token de A
+    cases.extend(attacks.build(sys.modules[__name__], ctx))
+
     # J. Sesión / JWT / CSRF
     cat = "J · Sesión, JWT y CSRF"
     AID, BID = ctx["AID"], ctx["BID"]
@@ -512,7 +519,7 @@ def run_case(case, ctx):
             path = subst(case.path, ctx); req = f"{case.m} {path[:120]}"
             r = raw(ctx["port"], case.m, path, {k: v for k, v in case.h.items()}, case.d)
             ok, obs = judge(case, ctx, r)
-            for s in LEAKS:                       # detector global de fugas: aplica a TODA respuesta
+            for s in LEAKS + PATHLEAKS:           # detector global de fugas: aplica a TODA respuesta
                 if s in r.body or s in "\n".join(r.hdrlines):
                     if not any(s in h for h in case.hasnt): ok, obs = False, f"{obs}; FUGA CANARIO «{s}»"
     except Exception as e: ok, obs, req = False, f"excepción del laboratorio: {e}", case.path or ""
@@ -557,7 +564,7 @@ def lint_cases():
 
 
 class Lab:
-    def __init__(self, exe): self.exe, self.running, self.summary = exe, False, None; self.lock = threading.Lock()
+    def __init__(self, exe, only=None): self.exe, self.only, self.running, self.summary = exe, (only.split(",") if only else None), False, None; self.lock = threading.Lock()
     def start(self):
         with self.lock:
             if self.running: return False
@@ -577,6 +584,7 @@ class Lab:
             ctx = seed(PB_PORT); ctx.update(port=PB_PORT, _symlinks=links)
             BUS.emit(type="env", version=ver, port=PB_PORT, symlinks=links)
             cases = catalog(ctx); pages = bad_page_cases(); lints = lint_cases()
+            if self.only: cases = [c for c in cases if c.id.startswith(tuple(self.only))]; pages = lints = []
             total = len(cases) + len(pages) + len(lints) + 2
             BUS.emit(type="plan", total=total)
             counts = {"pass": 0, "fail": 0}
@@ -652,9 +660,9 @@ class Server(socketserver.ThreadingMixIn, http.server.HTTPServer): daemon_thread
 
 def main():
     for st in (sys.stdout, sys.stderr): st.reconfigure(encoding="utf-8", errors="replace")
-    ap = argparse.ArgumentParser(); ap.add_argument("--headless", action="store_true"); ap.add_argument("--pb"); ap.add_argument("--no-open", action="store_true"); ap.add_argument("--no-auto", action="store_true"); ap.add_argument("--boot-only", action="store_true")
+    ap = argparse.ArgumentParser(); ap.add_argument("--headless", action="store_true"); ap.add_argument("--pb"); ap.add_argument("--no-open", action="store_true"); ap.add_argument("--no-auto", action="store_true"); ap.add_argument("--boot-only", action="store_true"); ap.add_argument("--only", help="prefijos de id separados por coma (p. ej. S): ejecuta solo esos ataques")
     a = ap.parse_args()
-    exe = provision(a.pb); lab = Lab(exe)
+    exe = provision(a.pb); lab = Lab(exe, a.only)
     if a.boot_only:   # usado por security/run-mini.sh: solo los archivos inseguros que deben impedir el arranque
         os.makedirs(RUN, exist_ok=True); bad = 0
         for i, (label, files) in enumerate(bad_page_cases()):

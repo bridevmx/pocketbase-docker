@@ -100,7 +100,7 @@ await pb.collection("users").authWithPassword(email, pass);
 document.cookie = pb.authStore.exportToCookie({ httpOnly: false, sameSite: "Strict", secure: true });   // cookie `pb_auth`
 ```
 Las páginas con `auth: "user"` y `ctx.user` ya funcionan por cookie. Con cookie, los métodos que cambian estado (POST/PUT/PATCH/DELETE) solo
-se aceptan si el navegador declara `Sec-Fetch-Site: same-origin|none` (anti‑CSRF). La API nativa `/api/*` **no** lee la cookie.
+se aceptan si `Sec-Fetch-Site` es `same-origin|none` **y** `Origin` (o `Referer`) coincide con el `Host` (anti‑CSRF; tras un proxy reenvía el `Host` original). Cualquier ruta con un segmento que empiece por `.` (p. ej. `/.env`) responde 404, incluso en `pb_public`. La API nativa `/api/*` **no** lee la cookie.
 Una cookie escrita desde JS no puede ser `HttpOnly` (igual que `localStorage`): el CSP estricto es la mitigación (recomendada por la doc del SDK).
 
 ## Límites actuales

@@ -102,7 +102,15 @@ function parseQuery(e, route) {
 function parseBody(e, route) {
   const out = Object.create(null);
   if (route.method === "GET") return { b: out };
-  let body; try { body = e.requestInfo().body; } catch (_) { return { err: 400 }; }
+  // JSON estricto: Go decodifica el primer valor e ignora el resto ({"n":1}x, dos documentos); JSON.parse lo rechaza.
+  // Leer el cuerpo lo consume, por eso el JSON se parsea aquí y no con requestInfo().
+  let body;
+  if ((e.request.header.get("Content-Type") || "").toLowerCase().indexOf("application/json") === 0) {
+    try { const txt = toString(e.request.body); body = txt === "" ? {} : JSON.parse(txt); } catch (_) { return { err: 400 }; }
+    if (body === null || typeof body !== "object" || Array.isArray(body)) return { err: 400 };
+  } else {
+    try { body = e.requestInfo().body; } catch (_) { return { err: 400 }; }
+  }
   const keys = body ? Object.keys(body) : [];
   if (keys.length > LIM.bodyKeys) return { err: 400 };
   for (let i = 0; i < keys.length; i++) {
@@ -117,7 +125,8 @@ function parseBody(e, route) {
 }
 
 // ---- parámetros de ruta ----------------------------------------------------
-const SEG_BAD = /[\x00-\x1f\x7f\\\/%]/;
+// además de control, "\", "/" y "%": UTF-8 inválido (U+FFFD), invisibles/bidi y barras/puntos de ancho completo o parecidos (spoofing y "best-fit" de Windows)
+const SEG_BAD = /[\x00-\x1f\x7f\\\/%�­​-‏‪-‮⁠-⁤﻿／＼．∕∖⧸⁄]/;
 function safeSegment(s) { return typeof s === "string" && s.length > 0 && s.length <= 255 && s !== "." && s !== ".." && !SEG_BAD.test(s); }
 function safeWildcard(s) {
   if (typeof s !== "string" || s.length === 0 || s.length > 1024 || s.charAt(0) === "/") return false;
@@ -309,12 +318,29 @@ function sessionToken(e) {
   try { const t = JSON.parse(decodeURIComponent(m[1])).token; return typeof t === "string" && JWT_RE.test(t) ? t : null; } catch (_) { return null; }
 }
 // Con cookie hay credencial ambiental => CSRF. Métodos que cambian estado sólo aceptan la cookie si el navegador
-// declara same-origin/none (Fetch Metadata). Sin la cabecera (cliente no-navegador) no hay CSRF posible.
+// declara same-origin/none (Fetch Metadata) y Origin/Referer coinciden con el Host. Sin esas cabeceras (cliente no-navegador) no hay CSRF posible.
 function csrfOk(e) {
   const m = e.request.method;
   if (m === "GET" || m === "HEAD" || m === "OPTIONS") return true;
   const sfs = e.request.header.get("Sec-Fetch-Site");
-  return !sfs || sfs === "same-origin" || sfs === "none";
+  if (sfs && sfs !== "same-origin" && sfs !== "none") return false;
+  // Navegadores sin Fetch Metadata (o cabeceras contradictorias): Origin, y si falta, Referer, deben ser del mismo host.
+  // Tras un proxy, éste debe reenviar el Host original (si no, las escrituras con cookie fallan cerradas con 401).
+  const host = String(e.request.host || "").toLowerCase();
+  const origin = e.request.header.get("Origin");
+  if (origin) { const o = /^https?:\/\/([^\/?#]+)$/i.exec(origin); return !!o && o[1].toLowerCase() === host; }
+  const ref = e.request.header.get("Referer");
+  if (ref) { const r = /^https?:\/\/([^\/?#]+)/i.exec(ref); return !!r && r[1].toLowerCase() === host; }
+  return true; // cliente no-navegador (sin Origin/Referer/Sec-Fetch-Site): no hay CSRF posible
+}
+// PocketBase sirve dotfiles de publicDir (.env, .git/...): bloqueo global de cualquier segmento que empiece con "." (salvo /.well-known/)
+function guardDot(e) {
+  const segs = e.request.url.path.split("/");
+  for (let i = 1; i < segs.length; i++) if (segs[i].charAt(0) === "." && !(i === 1 && segs[i] === ".well-known")) {
+    const h = e.response.header(); h.set("Cache-Control", "no-store"); h.set("X-Content-Type-Options", "nosniff");
+    return e.json(404, { error: "not found" });
+  }
+  return e.next();
 }
 function cookieAuth(e) {
   if (!e.auth) {
@@ -327,6 +353,7 @@ function cookieAuth(e) {
 function register() {
   try {
     load();
+    routerUse(new Middleware((e) => require(`${__hooks}/lib/mini.js`).guardDot(e), -1100, "pbmini_dotfiles"));
     for (const k in table) {
       const r = table[k];
       // Middleware nativo de PocketBase: cookie del SDK -> e.auth, luego requireAuth/requireSuperuserAuth y bodyLimit.
@@ -431,4 +458,4 @@ function route(method, pattern, opts, handler, internal) {
 }
 
 // No hay registro global de rutas (routes.js): cada ruta es un archivo de pages/ (lib/pages.js llama a route()).
-module.exports = { dispatch, register, route, cookieAuth };
+module.exports = { dispatch, register, route, cookieAuth, guardDot };
