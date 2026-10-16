@@ -100,9 +100,17 @@ await pb.collection("users").authWithPassword(email, pass);
 document.cookie = pb.authStore.exportToCookie({ httpOnly: false, sameSite: "Strict", secure: true });   // cookie `pb_auth`
 ```
 Las páginas con `auth: "user"` y `ctx.user` ya funcionan por cookie. Con cookie, los métodos que cambian estado (POST/PUT/PATCH/DELETE) solo
-se aceptan si `Sec-Fetch-Site` es `same-origin|none` **y** `Origin` (o `Referer`) coincide con el `Host` (anti‑CSRF; tras un proxy reenvía el `Host` original). Cualquier ruta con un segmento que empiece por `.` (p. ej. `/.env`) responde 404, incluso en `pb_public`. La API nativa `/api/*` **no** lee la cookie.
+se aceptan si `Sec-Fetch-Site` es `same-origin|none` **y** `Origin` (o `Referer`) coincide con el `Host` (anti‑CSRF; tras un proxy reenvía el `Host` original). Un `Content-Type: application/json` o `X-Requested-With` basta cuando el navegador no envía ninguna de esas cabeceras. Cualquier ruta con un segmento que empiece por `.` (p. ej. `/.env`) responde 404, incluso en `pb_public`. La API nativa `/api/*` **no** lee la cookie.
 Una cookie escrita desde JS no puede ser `HttpOnly` (igual que `localStorage`): el CSP estricto es la mitigación (recomendada por la doc del SDK).
 
 ## Límites actuales
 - HTML enriquecido guardado en la base se muestra escapado (seguro). Para mostrarlo hace falta un sanitizador decidido a propósito (o usar texto/markdown).
 - Los hooks de PocketBase (`pb_hooks`) tienen acceso total al sistema: revisa dependencias y monta la carpeta en solo lectura.
+
+## Directorio público (`pb_public`)
+PocketBase sirve `pb_public` tal cual. pbmini añade un guardia global y una auditoría al arrancar:
+- **Guardia** (cada petición): 404 a dotfiles y directorios ocultos (salvo `/.well-known/`), respaldos/claves/BD/logs/configuración (`.bak .sql .pem .key .log .db .ini .conf .env`, `~`, `id_rsa`, `Dockerfile`, `package.json`...),
+  nombres cortos 8.3 (`ENV~1`), dispositivos de Windows (`CON`, `NUL`...), caracteres `: * ? " < > |`, `%` y `\`, y nombres con Unicode «de compatibilidad» (NFKC), bidi o invisibles. También aplica a `ctx.file`.
+- **Auditoría de arranque**: `PBMINI_PUBLIC_AUDIT=strict` (por defecto) **aborta** si hay symlinks, archivos especiales (FIFO), ocultos o sensibles; `warn` solo avisa y bloquea en ejecución; `off` la desactiva.
+  El directorio sale de `--publicDir`, de `PBMINI_PUBLIC_DIR` o de `../pb_public`. Los comandos de la CLI de PocketBase (`superuser upsert`, `migrate`) también la ejecutan.
+- Despliegue: monta `pb_public` y `pb_hooks` de solo lectura; el guardia no puede ver un symlink creado después del arranque.

@@ -11,8 +11,8 @@ setup(){ # $1 = directorio pages/ ; $2 = "data" para crear colecciones
   cp -r "$ROOT/pb_hooks/lib" "$ROOT/pb_hooks/views" "$W/pb_hooks/"; cp "$ROOT/pb_hooks/main.pb.js" "$W/pb_hooks/"; cp -a "$1" "$W/pb_hooks/pages"
   echo TOP-SECRET-OUTSIDE > "$W/outside/secret.txt"; echo ENV=hunter2 > "$W/pb_public/.env"; echo pub > "$W/pb_public/pub.txt"; echo sub > "$W/pb_public/sub/a.txt"
   echo "<h1>idx</h1>" > "$W/pb_public/index.html"; ln -s "$W/outside/secret.txt" "$W/pb_public/link.txt"; ln -s "$W/outside" "$W/pb_public/dirlink"
-  "$PB" superuser upsert su@x.io 'Sup3rS3cret!!' --dir="$W/pb_data" >/dev/null 2>&1
-  (cd "$W" && PBMINI_STORE_MAX=500 "$PB" serve --http=127.0.0.1:$PORT --dir="$W/pb_data" --publicDir="$W/pb_public" --hooksDir="$W/pb_hooks" >"$W/log" 2>&1 </dev/null) &
+  PBMINI_PUBLIC_AUDIT=warn "$PB" superuser upsert su@x.io 'Sup3rS3cret!!' --dir="$W/pb_data" >/dev/null 2>&1
+  (cd "$W" && PBMINI_STORE_MAX=500 PBMINI_PUBLIC_AUDIT=warn "$PB" serve --http=127.0.0.1:$PORT --dir="$W/pb_data" --publicDir="$W/pb_public" --hooksDir="$W/pb_hooks" >"$W/log" 2>&1 </dev/null) &
   PID=$!; sleep 4
   if [[ ${2:-} == data ]]; then python3 -I "$HERE/setup-data.py" $PORT "$W.env.sh" || { echo "FAIL setup de datos"; exit 2; }; . "$W.env.sh"; fi; }
 ok(){ echo "ok   $1"; npass=$((npass+1)); }
@@ -166,7 +166,10 @@ chk 'A-DOC' - 200 /mine -H "Cookie: $(ckie $TOKA)"                              
 echo "## CSRF (la cookie es credencial ambiental): métodos que cambian estado + Sec-Fetch-Site"
 for sfs in cross-site same-site; do chk - - 401 /secure-post -X POST -H "Cookie: $(ckie $TOKA)" -H "Sec-Fetch-Site: $sfs"; done
 for sfs in same-origin none; do chk '"ok":true' - 200 /secure-post -X POST -H "Cookie: $(ckie $TOKA)" -H "Sec-Fetch-Site: $sfs"; done
-chk '"ok":true' - 200 /secure-post -X POST -H "Cookie: $(ckie $TOKA)"                    # cliente no-navegador (sin cabecera)
+chk - - 401 /secure-post -X POST -d '' -H "Cookie: $(ckie $TOKA)"                  # sin Origin/Referer/Sec-Fetch-Site: una petición 'simple' (form) no se acepta
+chk '"ok":true' - 200 /secure-post -X POST -H 'Content-Type: application/json' -d '{}' -H "Cookie: $(ckie $TOKA)"   # petición no simple (JSON)
+chk - - 401 /secure-post -X POST -H 'Origin: https://evil.example' -H "Cookie: $(ckie $TOKA)"           # Origin ajeno sin Sec-Fetch-Site
+chk - - 401 /secure-post -X POST -H 'Origin: null' -H "Cookie: $(ckie $TOKA)"
 chk '"ok":true' - 200 /secure-post -X POST -H "Authorization: $TOKA" -H 'Sec-Fetch-Site: cross-site'   # Authorization no es ambiental
 chk - - 200 /whoami -H "Cookie: $(ckie $TOKA)" -H 'Sec-Fetch-Site: cross-site'           # GET (seguro) permitido
 echo "## revocación NATIVA: cambiar la contraseña invalida el token (sin lista de sesiones propia)"

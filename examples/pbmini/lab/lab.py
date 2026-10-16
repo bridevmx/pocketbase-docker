@@ -21,7 +21,11 @@ RUN = os.path.join(HERE, ".run")
 PB_PORT, BAD_PORT, UI_PORT = 8097, 8098, 8099
 PB_VERSION = "0.40.5"
 PATHLEAKS = ["pb_hooks", "\\Users\\", "goja", "GoError"]
-LEAKS = ["TOPSECRET", "hunter2", "TOP-SECRET-OUTSIDE", "SECRET-PAGE-LEAK", "passwordHash", "tokenKey", "Sup3rS3cret"]
+LEAKS = ["DOTCANARY", "TOPSECRET", "hunter2", "TOP-SECRET-OUTSIDE", "SECRET-PAGE-LEAK", "passwordHash", "tokenKey", "Sup3rS3cret"]
+DOT_FILES = [".env.local", ".env.production", ".git/config", ".git/HEAD", ".htpasswd", ".ssh/id_rsa", ".hidden/inner.txt", "sub/.secret", "sub/.git/config", ".DS_Store", ".npmrc", ".aws/credentials"]
+SENS_FILES = ["config.bak", "db.sqlite", "app.log", "backup.sql", "server.pem", "id_rsa", "notes.txt~", "settings.ini", "web.config", "secret.key", "old.conf", "dump.old", "data.db", "Dockerfile", "package.json", "credentials", "app.env", "sub/cfg.bak"]
+LEGIT_FILES = {"pub.txt": "pub\n", "sub/a.txt": "sub\n", "style.css": "body{color:red}\n", "app.js": "var a = 1;\n", "file.json": "{}\n", "ñandú.txt": "unicode\n", ".well-known/ok.txt": "wk\n"}
+IS_WIN = sys.platform == "win32"
 SU_MAIL, SU_PASS = "su@x.io", "Sup3rS3cret!!"
 
 
@@ -74,8 +78,9 @@ def provision(pb_arg):
     return exe
 
 
-def build_sandbox(root, pages, symlinks=True):
-    """Árbol aislado: pb_data / pb_public / pb_hooks. Devuelve True si se pudieron crear symlinks."""
+def build_sandbox(root, pages, symlinks=True, clean=False, public=None):
+    """Árbol aislado: pb_data / pb_public / pb_hooks. clean=True: pb_public sin señuelos (para pruebas de arranque).
+    public: {ruta: contenido | ("link", destino) | ("fifo",)} extra en pb_public. Devuelve True si se pudieron crear symlinks."""
     shutil.rmtree(root, ignore_errors=True)
     for d in ("outside", "pb_data", "pb_public/sub", "pb_hooks"): os.makedirs(os.path.join(root, d))
     hooks = os.path.join(root, "pb_hooks")
@@ -83,10 +88,23 @@ def build_sandbox(root, pages, symlinks=True):
     shutil.copytree(os.path.join(ROOT, "pb_hooks", "views"), os.path.join(hooks, "views"))
     shutil.copy(os.path.join(ROOT, "pb_hooks", "main.pb.js"), hooks)
     if pages: shutil.copytree(pages, os.path.join(hooks, "pages"), symlinks=True)
-    w = lambda p, s: open(os.path.join(root, p), "w", newline="\n").write(s)
-    w("outside/secret.txt", "TOP-SECRET-OUTSIDE\n"); w("pb_public/.env", "ENV=hunter2\n"); w("pb_public/pub.txt", "pub\n")
-    w("pb_public/sub/a.txt", "sub\n"); w("pb_public/index.html", "<h1>idx</h1>\n")
-    if not symlinks: return False
+    def w(p, txt):
+        full = os.path.join(root, p); os.makedirs(os.path.dirname(full), exist_ok=True)
+        with open(full, "w", newline="\n", encoding="utf-8") as f: f.write(txt)
+    w("outside/secret.txt", "TOP-SECRET-OUTSIDE\n"); w("pb_public/pub.txt", "pub\n"); w("pb_public/index.html", "<h1>idx</h1>\n"); w("pb_public/sub/a.txt", "sub\n")
+    if not clean:
+        w("pb_public/.env", "ENV=hunter2\n")
+        for rel in DOT_FILES + SENS_FILES: w("pb_public/" + rel, f"DOTCANARY:{rel}\n")
+        for rel, txt in LEGIT_FILES.items(): w("pb_public/" + rel, txt)
+    ok_links = True
+    for rel, v in (public or {}).items():
+        full = os.path.join(root, "pb_public", rel); os.makedirs(os.path.dirname(full), exist_ok=True)
+        try:
+            if isinstance(v, tuple) and v[0] == "link": os.symlink(v[1] if os.path.isabs(v[1]) else os.path.join(root, v[1]), full, target_is_directory=len(v) > 2)
+            elif isinstance(v, tuple) and v[0] == "fifo": os.mkfifo(full)
+            else: w("pb_public/" + rel, v)
+        except (OSError, NotImplementedError, AttributeError): ok_links = False
+    if not symlinks or clean: return False
     try:
         os.symlink(os.path.join(root, "outside", "secret.txt"), os.path.join(root, "pb_public", "link.txt"))
         os.symlink(os.path.join(root, "outside"), os.path.join(root, "pb_public", "dirlink"), target_is_directory=True)
@@ -95,10 +113,10 @@ def build_sandbox(root, pages, symlinks=True):
 
 
 class PB:
-    def __init__(self, exe, root, port): self.exe, self.root, self.port, self.proc = exe, root, port, None
+    def __init__(self, exe, root, port, env=None): self.exe, self.root, self.port, self.proc, self.env = exe, root, port, None, env or {}
     def serve(self):
-        env = dict(os.environ, PBMINI_STORE_MAX="500")
-        subprocess.run([self.exe, "superuser", "upsert", SU_MAIL, SU_PASS, f"--dir={self.root}/pb_data"], capture_output=True, cwd=self.root)
+        env = dict(os.environ, PBMINI_STORE_MAX="500", **self.env)
+        subprocess.run([self.exe, "superuser", "upsert", SU_MAIL, SU_PASS, f"--dir={self.root}/pb_data"], capture_output=True, cwd=self.root, env=env)
         self.logf = open(os.path.join(self.root, "log"), "wb")
         flags = subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0
         self.proc = subprocess.Popen([self.exe, "serve", f"--http=127.0.0.1:{self.port}", f"--dir={self.root}/pb_data",
@@ -388,6 +406,8 @@ def catalog(ctx):
 
     import attacks   # fase de ataques contra el framework (ver attacks.py); antes de J porque J revoca el token de A
     cases.extend(attacks.build(sys.modules[__name__], ctx))
+    import attacks_deep
+    cases.extend(attacks_deep.build(sys.modules[__name__], ctx, attacks))
 
     # J. Sesión / JWT / CSRF
     cat = "J · Sesión, JWT y CSRF"
@@ -526,19 +546,36 @@ def run_case(case, ctx):
     return ok, obs, req, int((time.time() - t0) * 1000)
 
 
-def run_boot(label, files, exe, tag):
+def run_boot(label, files, exe, tag, public=None, expect_up=False):
+    """Arranca PocketBase con pages/ (files) y pb_public/ (public) extra. Por defecto espera que el servidor MUERA (fail-closed);
+    con expect_up=True espera que ARRANQUE. Devuelve (ok, observado); ok=None => omitido (el SO no permite crear el archivo)."""
     d = os.path.join(RUN, f"bad-{tag}"); pg = os.path.join(RUN, f"bad-{tag}-pages")
     shutil.rmtree(pg, ignore_errors=True); os.makedirs(pg)
     for rel, content in files.items():
-        p = os.path.join(pg, rel); os.makedirs(os.path.dirname(p), exist_ok=True); open(p, "w", newline="\n").write(content)
-    build_sandbox(d, pg, symlinks=False)
+        p = os.path.join(pg, rel); os.makedirs(os.path.dirname(p), exist_ok=True)
+        with open(p, "w", newline="\n", encoding="utf-8") as f: f.write(content)
+    if not files: os.makedirs(os.path.join(pg, "_x"), exist_ok=True)
+    ok_make = True
+    build_sandbox(d, pg, symlinks=False, clean=True, public=public)
+    for rel, v in (public or {}).items():
+        full = os.path.join(d, "pb_public", rel)
+        if isinstance(v, tuple) and not os.path.lexists(full): ok_make = False
+    if not ok_make:
+        shutil.rmtree(d, ignore_errors=True); shutil.rmtree(pg, ignore_errors=True)
+        return None, "OMITIDO: este sistema no permite crear el enlace simbólico/FIFO (probar en Linux/WSL)"
     pb = PB(exe, d, BAD_PORT); pb.serve()
-    died, end = False, time.time() + 12
+    died, up, end = False, False, time.time() + 14
     while time.time() < end:
         if pb.proc.poll() is not None: died = True; break
-        time.sleep(0.2)
+        if expect_up:
+            try:
+                c = http.client.HTTPConnection("127.0.0.1", BAD_PORT, timeout=1); c.request("GET", "/api/health")
+                if c.getresponse().status == 200: up = True; break
+            except OSError: pass
+        time.sleep(0.25)
     lg = pb.log(); pb.stop()
     shutil.rmtree(d, ignore_errors=True); shutil.rmtree(pg, ignore_errors=True)
+    if expect_up: return up, ("arrancó con el directorio público limpio" if up else "NO ARRANCÓ: " + lg[-200:])
     msg = "pbmini" in lg or "conflicts with pattern" in lg
     return died and msg, ("el proceso murió con error explícito" if died and msg else ("murió sin mensaje reconocible" if died else "EL SERVIDOR ARRANCÓ (aceptó la configuración insegura)"))
 
@@ -576,9 +613,12 @@ class Lab:
         try:
             BUS.reset(); os.makedirs(RUN, exist_ok=True)
             root = os.path.join(RUN, "main")
-            links = build_sandbox(root, os.path.join(SEC, "mini", "pages"))
+            # archivos con nombres problemáticos (solo se pueden crear en Linux/macOS): barra invertida, %, NFD, salto de línea, tabulador, bidi, FIFO
+            unix_public = {} if IS_WIN else {"pipe": ("fifo",), "back" + chr(92) + "slash.txt": "DOTCANARY:back", "100%.txt": "DOTCANARY:pct", "e" + chr(0x301) + ".txt": "DOTCANARY:nfd",
+                                              "newline" + chr(10) + "name.txt": "DOTCANARY:nl", "tab" + chr(9) + "name.txt": "DOTCANARY:tab", chr(0x202e) + "txt.exe": "DOTCANARY:bidi"}
+            links = build_sandbox(root, os.path.join(SEC, "mini", "pages"), public=unix_public)
             log(f"sandbox aislado creado ({'con' if links else 'SIN'} symlinks; {'' if links else 'Windows sin privilegio de symlink: se omiten 2 casos'})")
-            pb = PB(self.exe, root, PB_PORT); pb.serve()
+            pb = PB(self.exe, root, PB_PORT, env={"PBMINI_PUBLIC_AUDIT": "warn"}); pb.serve()
             if not pb.wait_ready(): raise RuntimeError("PocketBase no arrancó:\n" + pb.log()[-800:])
             ver = subprocess.run([self.exe, "--version"], capture_output=True, text=True).stdout.strip().split("version")[-1].strip()
             ctx = seed(PB_PORT); ctx.update(port=PB_PORT, _symlinks=links)
@@ -587,11 +627,11 @@ class Lab:
             if self.only: cases = [c for c in cases if c.id.startswith(tuple(self.only))]; pages = lints = []
             total = len(cases) + len(pages) + len(lints) + 2
             BUS.emit(type="plan", total=total)
-            counts = {"pass": 0, "fail": 0}
+            counts = {"pass": 0, "fail": 0, "skip": 0}
             def report(id, cat, obj, meta, ok, obs, req, ms):
-                counts["pass" if ok else "fail"] += 1
-                BUS.emit(type="case", id=id, cat=cat, obj=obj, meta=meta, status="pass" if ok else "fail", observed=obs, req=req, ms=ms)
-                print(f"  {'ok  ' if ok else 'FAIL'} {id} {obj[:70]}" + ("" if ok else f"  -> {obs}"), flush=True)
+                st = "skip" if ok is None else ("pass" if ok else "fail"); counts[st] += 1
+                BUS.emit(type="case", id=id, cat=cat, obj=obj, meta=meta, status=st, observed=obs, req=req, ms=ms)
+                print(f"  {({'pass': 'ok  ', 'fail': 'FAIL', 'skip': 'skip'})[st]} {id} {obj[:70]}" + ("" if st == "pass" else f"  -> {obs}"), flush=True)
             # Fase 1: ataques en vivo contra el servidor
             for case in cases:
                 if not pb.alive(): report(case.id, case.cat, case.obj, case.meta, False, "PocketBase murió durante la prueba (DoS)", case.path or "", 0); continue
@@ -611,10 +651,16 @@ class Lab:
             for i, (label, files) in enumerate(pages):
                 ok, obs = run_boot(label, files, self.exe, f"p{i}")
                 report(f"F{i+1:03d}", "F · Fail-closed al arrancar", f"Archivo inseguro en pages/: {label}", "El servidor NO arranca (aborta con error explícito)", ok, obs, "arranque", 0)
+            import attacks_deep
+            pubs = [] if self.only else attacks_deep.public_boot_cases()
+            total += len(pubs); BUS.emit(type="plan", total=total)
+            for i, (label, public, expect_up) in enumerate(pubs):
+                ok, obs = run_boot(label, {}, self.exe, f"d{i}", public=public, expect_up=expect_up)
+                report(f"P{i+1:03d}", "P · Auditoría del directorio público", f"Arranque con pb_public: {label}", "Aborta si hay symlink/especial/oculto/sensible; arranca si está limpio" if not expect_up else "Arranca (sin falsos positivos)", ok, obs, "arranque", 0)
             for i, (obj, meta, fn) in enumerate(lints):
                 ok, obs = fn(ctx); report(f"L{i+1:03d}", "L · Lint de código", obj, meta, ok, obs, "security/lint.sh", 0)
             leaks = sum(1 for e in BUS.events if e.get("type") == "case" and e["status"] == "fail" and "FUGA" in e["observed"])
-            self.summary = dict(total=total, passed=counts["pass"], failed=counts["fail"], leaks=leaks, alive=alive)
+            self.summary = dict(total=total, passed=counts["pass"], failed=counts["fail"], skipped=counts["skip"], leaks=leaks, alive=alive)
             BUS.emit(type="done", **self.summary)
         except Exception as e:
             BUS.emit(type="error", msg=str(e)); print("ERROR:", e, flush=True); self.summary = dict(error=str(e))

@@ -35,7 +35,7 @@ function compileSchema(obj, fail) {
   return out;
 }
 // Devuelve {ok, v}. `raw` puede ser string (query/form) o primitivo JSON (body).
-function checkValue(f, raw) {
+function checkValue(f, raw, json) { // json=true: el cuerpo ya viene tipado; no se aceptan cadenas como número/booleano ({"n":"5"})
   const isStr = typeof raw === "string";
   switch (f.type) {
     case "string": {
@@ -46,14 +46,14 @@ function checkValue(f, raw) {
     case "int": {
       let n;
       if (typeof raw === "number") n = raw;
-      else if (isStr && /^-?(0|[1-9][0-9]{0,14})$/.test(raw) && raw !== "-0") n = Number(raw);
+      else if (!json && isStr && /^-?(0|[1-9][0-9]{0,14})$/.test(raw) && raw !== "-0") n = Number(raw);
       else return { ok: false };
       if (!Number.isInteger(n) || n < f.min || n > f.max) return { ok: false };
       return { ok: true, v: n };
     }
     case "bool":
-      if (raw === true || raw === "true") return { ok: true, v: true };
-      if (raw === false || raw === "false") return { ok: true, v: false };
+      if (raw === true || (!json && raw === "true")) return { ok: true, v: true };
+      if (raw === false || (!json && raw === "false")) return { ok: true, v: false };
       return { ok: false };
     case "id": case "uuid": return isStr && PARAM_TYPES[f.type].test(raw) ? { ok: true, v: raw } : { ok: false };
     case "slug": return isStr && raw.length <= f.max && PARAM_TYPES.slug.test(raw) ? { ok: true, v: raw } : { ok: false };
@@ -104,8 +104,9 @@ function parseBody(e, route) {
   if (route.method === "GET") return { b: out };
   // JSON estricto: Go decodifica el primer valor e ignora el resto ({"n":1}x, dos documentos); JSON.parse lo rechaza.
   // Leer el cuerpo lo consume, por eso el JSON se parsea aquí y no con requestInfo().
-  let body;
+  let body, isJson = false;
   if ((e.request.header.get("Content-Type") || "").toLowerCase().indexOf("application/json") === 0) {
+    isJson = true;
     try { const txt = toString(e.request.body); body = txt === "" ? {} : JSON.parse(txt); } catch (_) { return { err: 400 }; }
     if (body === null || typeof body !== "object" || Array.isArray(body)) return { err: 400 };
   } else {
@@ -116,7 +117,7 @@ function parseBody(e, route) {
   for (let i = 0; i < keys.length; i++) {
     const k = keys[i], f = route.body[k];
     if (!f) return { err: 400 }; // campo no declarado (mass assignment / pollution)
-    const r = checkValue(f, body[k]);
+    const r = checkValue(f, body[k], isJson);
     if (!r.ok) return { err: 400, field: k };
     out[k] = r.v;
   }
@@ -126,8 +127,23 @@ function parseBody(e, route) {
 
 // ---- parámetros de ruta ----------------------------------------------------
 // además de control, "\", "/" y "%": UTF-8 inválido (U+FFFD), invisibles/bidi y barras/puntos de ancho completo o parecidos (spoofing y "best-fit" de Windows)
-const SEG_BAD = /[\x00-\x1f\x7f\\\/%�­​-‏‪-‮⁠-⁤﻿／＼．∕∖⧸⁄]/;
-function safeSegment(s) { return typeof s === "string" && s.length > 0 && s.length <= 255 && s !== "." && s !== ".." && !SEG_BAD.test(s); }
+// Caracteres que nunca forman parte de un segmento de ruta: control, "\", "/", "%", UTF-8 inválido (U+FFFD), invisibles/rellenos/bidi
+// (soft hyphen, CGJ, ALM, fillers Hangul/Khmer/Mongol, ZW*, LRM/RLM, LRE..RLO, aislados U+2066-2069, braille en blanco, BOM), barras/puntos
+// "parecidos" (ancho completo, división, fracción, big solidus, box drawing) y los caracteres TAG (U+E0000..E007F). Spoofing y "best-fit" de Windows.
+const SEG_BAD = /[\x00-\x1f\x7f\\\/%\ufffd\u00ad\u034f\u061c\u115f\u1160\u17b4\u17b5\u180b-\u180e\u200b-\u200f\u202a-\u202e\u2060-\u2069\u2800\u3164\ufeff\uffa0\uff0f\uff3c\uff0e\u2215\u2216\u2044\u2571\u2572\u29f5\u29f8\u29f9]|\udb40[\udc00-\udfff]/;
+// NFKC: cualquier carácter "de compatibilidad" (ancho completo, puntos guía U+2024/2025, punto pequeño U+FE52...) cambia al normalizar => confundible con "." o "/"
+const stable = (s) => !s.normalize || s.normalize("NFKC") === s;
+function safeSegment(s) { return typeof s === "string" && s.length > 0 && s.length <= 255 && s !== "." && s !== ".." && !SEG_BAD.test(s) && stable(s); }
+// ---- archivos que nunca deben servirse desde un directorio público (defensa en profundidad; no sustituye a no desplegarlos) ----
+const SENSITIVE_EXT = /\.(bak|backup|old|orig|save|swp|swo|tmp|temp|sql|sqlite3?|db|log|pem|key|pfx|p12|env|ini|conf|cfg|htpasswd|htaccess)$/i;
+const SENSITIVE_NAME = /^(id_(rsa|dsa|ecdsa|ed25519)(\.pub)?|dockerfile|docker-compose\.ya?ml|web\.config|composer\.(json|lock)|package(-lock)?\.json|yarn\.lock|pnpm-lock\.yaml|credentials|secrets?)$/i;
+const WIN_RESERVED = /^(con|prn|aux|nul|com[0-9\u00b9\u00b2\u00b3]|lpt[0-9\u00b9\u00b2\u00b3]|conin\$|conout\$|clock\$)(\..*)?$/i;
+function hiddenName(seg, last) {
+  if (seg.charAt(0) === ".") return true;                                   // dotfiles y directorios ocultos (.env, .git, .ssh...)
+  const s = seg.replace(/:.*$/, "").replace(/[. ]+$/, "");                  // NTFS ignora ":flujo" y los puntos/espacios finales
+  if (/~[0-9]/.test(s) || WIN_RESERVED.test(s)) return true;               // nombres cortos 8.3 (ENV~1) y dispositivos de Windows (CON, NUL, COM1...)
+  return !!last && (SENSITIVE_EXT.test(s) || /~$/.test(s) || SENSITIVE_NAME.test(s));   // respaldos, claves, bases de datos, logs, configuración
+}
 function safeWildcard(s) {
   if (typeof s !== "string" || s.length === 0 || s.length > 1024 || s.charAt(0) === "/") return false;
   return s.split("/").every((x) => safeSegment(x) && x.charAt(0) !== ".");
@@ -290,6 +306,7 @@ function safeFileTarget(base, rel) {
     let entries; try { entries = $os.readDir(dir); } catch (_) { return null; }
     const ent = entries.find((d) => d.name() === segs[i]);
     if (!ent) return null;
+    if (hiddenName(segs[i], i === segs.length - 1) || /[:*?"<>|]/.test(segs[i])) return null;
     const t = Number(ent.type()); // FileMode envuelto por Go: 0 = archivo regular
     if (i === segs.length - 1 ? t !== 0 : !ent.isDir()) return null; // rechaza symlinks y especiales
     dir = dir + "/" + segs[i];
@@ -323,24 +340,73 @@ function csrfOk(e) {
   const m = e.request.method;
   if (m === "GET" || m === "HEAD" || m === "OPTIONS") return true;
   const sfs = e.request.header.get("Sec-Fetch-Site");
-  if (sfs && sfs !== "same-origin" && sfs !== "none") return false;
-  // Navegadores sin Fetch Metadata (o cabeceras contradictorias): Origin, y si falta, Referer, deben ser del mismo host.
-  // Tras un proxy, éste debe reenviar el Host original (si no, las escrituras con cookie fallan cerradas con 401).
+  if (sfs && sfs !== "same-origin" && sfs !== "none") return false;     // cross-site, same-site (subdominio hermano) o valor inesperado
+  // Origin (y si falta, Referer) deben ser del mismo host. Tras un proxy, éste debe reenviar el Host original
+  // (si no, las escrituras con cookie fallan cerradas con 401). Ninguna página ajena puede falsificar estas cabeceras.
   const host = String(e.request.host || "").toLowerCase();
   const origin = e.request.header.get("Origin");
-  if (origin) { const o = /^https?:\/\/([^\/?#]+)$/i.exec(origin); return !!o && o[1].toLowerCase() === host; }
-  const ref = e.request.header.get("Referer");
-  if (ref) { const r = /^https?:\/\/([^\/?#]+)/i.exec(ref); return !!r && r[1].toLowerCase() === host; }
-  return true; // cliente no-navegador (sin Origin/Referer/Sec-Fetch-Site): no hay CSRF posible
+  if (origin) { const o = /^https?:\/\/([^\/?#]+)$/i.exec(origin); if (!o || o[1].toLowerCase() !== host) return false; }
+  else {
+    const ref = e.request.header.get("Referer");
+    if (ref) { const r = /^https?:\/\/([^\/?#]+)/i.exec(ref); if (!r || r[1].toLowerCase() !== host) return false; }
+  }
+  if (sfs) return true; // navegador con Fetch Metadata y mismo origen: Sec-Fetch-Site no es falsificable por una página
+  if (origin || e.request.header.get("Referer")) return true;
+  // Sin Sec-Fetch-Site, Origin ni Referer (cliente no-navegador, o navegador antiguo con Referer suprimido): solo se acepta una petición
+  // "no simple" que un <form> entre sitios no puede fabricar (Content-Type JSON o X-Requested-With) y que CORS sin credenciales no deja enviar.
+  return /^application\/json/i.test(e.request.header.get("Content-Type") || "") || !!e.request.header.get("X-Requested-With");
 }
-// PocketBase sirve dotfiles de publicDir (.env, .git/...): bloqueo global de cualquier segmento que empiece con "." (salvo /.well-known/)
-function guardDot(e) {
+// PocketBase sirve el publicDir tal cual (dotfiles, respaldos, symlinks...). Este middleware GLOBAL cierra lo que se puede cerrar por ruta:
+//  - cualquier segmento que empiece por "." (salvo /.well-known/) => 404, en cualquier ruta (también /api y /_)
+//  - en la ruta estática nativa: segmentos con bytes/Unicode raros (NFKC, bidi, U+FFFD, "%", "\"), caracteres de Windows (: * ? " < > |),
+//    nombres 8.3 (ENV~1), dispositivos (CON, NUL), respaldos/claves/bases de datos/logs/configuración => 404
+//  - symlinks y archivos especiales (p. ej. una FIFO, que bloquearía la lectura) detectados al arrancar: nunca se sirven
+function guardPaths(e) {
   const segs = e.request.url.path.split("/");
-  for (let i = 1; i < segs.length; i++) if (segs[i].charAt(0) === "." && !(i === 1 && segs[i] === ".well-known")) {
-    const h = e.response.header(); h.set("Cache-Control", "no-store"); h.set("X-Content-Type-Options", "nosniff");
-    return e.json(404, { error: "not found" });
+  const isStatic = String(e.request.pattern || "").replace(/^\S+\s/, "") === "/{path...}";
+  const deny = () => { const h = e.response.header(); h.set("Cache-Control", "no-store"); h.set("X-Content-Type-Options", "nosniff"); return e.json(404, { error: "not found" }); };
+  for (let i = 1; i < segs.length; i++) {
+    const s = segs[i];
+    if (s === "" || (i === 1 && s === ".well-known")) continue;
+    if (s.charAt(0) === ".") return deny();
+    if (isStatic && (!safeSegment(s) || /[:*?"<>|]/.test(s) || hiddenName(s, i === segs.length - 1))) return deny();
+  }
+  if (isStatic) {
+    const rel = segs.filter((x) => x !== "").join("/").toLowerCase(), links = pubScan().links;
+    for (let i = 0; i < links.length; i++) if (rel === links[i] || rel.indexOf(links[i] + "/") === 0) return deny();
   }
   return e.next();
+}
+// Directorio público: --publicDir de la línea de comandos, PBMINI_PUBLIC_DIR o ../pb_public.
+function publicDir() {
+  const a = $os.args || [];
+  for (let i = 0; i < a.length; i++) { const m = /^--?publicDir(?:=(.*))?$/.exec(String(a[i])); if (m) return m[1] !== undefined ? m[1] : String(a[i + 1] || ""); }
+  return $os.getenv("PBMINI_PUBLIC_DIR") || `${__hooks}/../pb_public`;
+}
+let _scan = null; // por runtime (cada VM del pool lo calcula una vez)
+function pubScan() {
+  if (_scan) return _scan;
+  _scan = { bad: [], links: [], dir: "" };
+  if (($os.getenv("PBMINI_PUBLIC_AUDIT") || "strict") === "off") return _scan;
+  const dir = publicDir();
+  if (!dir || !exists(dir)) return _scan;
+  _scan.dir = dir; let n = 0;
+  $filepath.walkDir(dir, (p, d, err) => {
+    if (err || ++n > 50000) return;
+    const rel = String(p).slice(dir.length).replace(/^[\\\/]+/, "").replace(/\\/g, "/");
+    if (rel === "") return;
+    if (!d.isDir() && Number(d.type()) !== 0) { _scan.bad.push(`${rel}: enlace simbólico o archivo especial`); _scan.links.push(rel.toLowerCase()); }
+    else if (rel.split("/")[0] !== ".well-known" && hiddenName(d.name(), !d.isDir())) _scan.bad.push(`${rel}: archivo oculto/sensible`);
+  });
+  return _scan;
+}
+// PBMINI_PUBLIC_AUDIT = strict (por defecto: aborta el arranque) | warn (avisa; el guardia bloquea en ejecución) | off
+function auditPublic() {
+  const mode = $os.getenv("PBMINI_PUBLIC_AUDIT") || "strict", sc = pubScan();
+  if (mode === "off" || !sc.bad.length) return;
+  const msg = `pbmini: el directorio público (${sc.dir}) no es seguro (${sc.bad.length}): ${sc.bad.slice(0, 5).join("; ")}${sc.bad.length > 5 ? "; ..." : ""}`;
+  if (mode === "warn") console.log(msg + " [PBMINI_PUBLIC_AUDIT=warn: los symlinks/especiales y lo oculto/sensible se bloquean en ejecución]");
+  else throw new Error(msg + " (retíralos, o PBMINI_PUBLIC_AUDIT=warn|off solo en desarrollo)");
 }
 function cookieAuth(e) {
   if (!e.auth) {
@@ -353,7 +419,8 @@ function cookieAuth(e) {
 function register() {
   try {
     load();
-    routerUse(new Middleware((e) => require(`${__hooks}/lib/mini.js`).guardDot(e), -1100, "pbmini_dotfiles"));
+    auditPublic();
+    routerUse(new Middleware((e) => require(`${__hooks}/lib/mini.js`).guardPaths(e), -1100, "pbmini_paths"));
     for (const k in table) {
       const r = table[k];
       // Middleware nativo de PocketBase: cookie del SDK -> e.auth, luego requireAuth/requireSuperuserAuth y bodyLimit.
@@ -458,4 +525,4 @@ function route(method, pattern, opts, handler, internal) {
 }
 
 // No hay registro global de rutas (routes.js): cada ruta es un archivo de pages/ (lib/pages.js llama a route()).
-module.exports = { dispatch, register, route, cookieAuth, guardDot };
+module.exports = { dispatch, register, route, cookieAuth, guardPaths };

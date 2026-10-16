@@ -21,7 +21,7 @@ button{font:inherit;background:var(--accent);color:#fff;border:0;border-radius:8
 details{background:var(--card);border:1px solid var(--line);border-radius:10px;margin-bottom:10px}summary{cursor:pointer;padding:10px 14px;font-weight:600;display:flex;gap:10px;align-items:center}
 summary .n{margin-left:auto;color:var(--mute);font-weight:400;font-variant-numeric:tabular-nums}
 .row{display:grid;grid-template-columns:22px 1fr 1fr;gap:4px 12px;padding:8px 14px;border-top:1px solid var(--line)}
-.row .ic{font-weight:700}.row.pass .ic{color:var(--ok)}.row.fail{background:var(--badbg)}.row.fail .ic{color:var(--bad)}
+.row .ic{font-weight:700}.row.pass .ic{color:var(--ok)}.row.skip .ic{color:var(--mute)}.row.skip{opacity:.7}.row.fail{background:var(--badbg)}.row.fail .ic{color:var(--bad)}
 .lbl{color:var(--mute);font-size:11px;text-transform:uppercase;letter-spacing:.04em}.obs{grid-column:2/4;color:var(--mute);font-size:12.5px;font-family:ui-monospace,Consolas,monospace;word-break:break-all}
 .row.fail .obs{color:var(--bad)}.id{color:var(--mute);font-family:ui-monospace,monospace;font-size:11px}
 .log{color:var(--mute);font-size:12px;margin:0 0 10px}
@@ -59,14 +59,14 @@ function category(name) {
 function addCase(ev) {
   const c = category(ev.cat); c.all++; const good = ev.status === "pass"; if (good) c.ok++;
   const r = el("div", "row " + ev.status); r.dataset.s = ev.status;
-  r.append(el("div", "ic", good ? "✓" : "✗"));
+  r.append(el("div", "ic", good ? "✓" : ev.status === "skip" ? "–" : "✗"));
   const a = el("div"); a.append(el("div", "lbl", "Objetivo (qué se intenta romper) · " + ev.id), el("div", "", ev.obj));
   const b = el("div"); b.append(el("div", "lbl", "Meta (resultado seguro)"), el("div", "", ev.meta));
   const o = el("div", "obs", `${ev.req}  →  ${ev.observed}  (${ev.ms} ms)`);
   r.append(a, b, o); c.d.append(r);
-  c.n.textContent = `${c.ok}/${c.all}`; if (!good) { c.d.open = true; c.d.firstChild.style.color = "var(--bad)"; }
+  c.n.textContent = `${c.ok}/${c.all}`; if (!good && ev.status !== "skip") { c.d.open = true; c.d.firstChild.style.color = "var(--bad)"; }
   if (filter === "fail" && good) r.hidden = true;
-  if (good) pass++; else fail++; if (ev.observed.includes("FUGA")) leaks++;
+  if (good) pass++; else if (ev.status !== "skip") fail++; if (ev.observed.includes("FUGA")) leaks++;
   paint();
 }
 function handle(ev) {
@@ -77,7 +77,7 @@ function handle(ev) {
   else if (ev.type === "case") addCase(ev);
   else if (ev.type === "done") {
     const v = $("verdict"); $("rerun").disabled = false;
-    if (ev.failed === 0 && ev.leaks === 0) { v.className = "verdict ok"; v.textContent = `Todas las metas cumplidas (${ev.passed}/${ev.total}). Esto prueba el catálogo, no la ausencia total de fallos.`; }
+    if (ev.failed === 0 && ev.leaks === 0) { v.className = "verdict ok"; v.textContent = `Todas las metas cumplidas (${ev.passed}/${ev.total}${ev.skipped ? `, ${ev.skipped} omitidas por el SO` : ""}). Esto prueba el catálogo, no la ausencia total de fallos.`; }
     else { v.className = "verdict bad"; v.textContent = `${ev.failed} meta(s) incumplida(s), ${ev.leaks} fuga(s). Revisa las filas en rojo.`; }
   } else if (ev.type === "error") { $("verdict").className = "verdict bad"; $("verdict").textContent = "Error del laboratorio: " + ev.msg; $("rerun").disabled = false; }
 }

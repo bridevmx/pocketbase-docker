@@ -231,3 +231,44 @@ Observaciones aceptadas (no son fallos, quedan documentadas):
 - **Rendimiento**: con 64 conexiones simultáneas la latencia sube (mediciones en Windows: ~70 req/s en serie, p95 de 4-5 s con 600 peticiones en ráfaga) pero sin errores y con recuperación inmediata. Ajusta `--hooksPool`, el limitador nativo y el proxy.
 - **Symlinks** en `pb_public` siguen sin bloquearse en el servidor nativo (hace falta auditar en CI; `ctx.file` sí los rechaza).
 - **No cubierto**: carreras TOCTOU de symlinks, canales de tiempo, TLS/HTTP2 (dependen del proxy), y los 26 vectores de la API nativa de `VECTORS.md` (grupo A).
+
+---
+# Ronda 8: pruebas profundas de los 4 hallazgos (lab D1–D6, P) y cobertura Windows + Linux
+
+Investigación previa (técnicas actuales, no específicas de PocketBase) y qué se probó con cada una:
+
+| Técnica / fuente | Qué enseña | Cómo se prueba aquí |
+|---|---|---|
+| *Breaking Parser Logic* (Orange Tsai, Black Hat/DEF CON 2018) y el aviso de Envoy 2026 (`/..;foo=bar/`) | La capa que decide y la que sirve interpretan distinto la ruta (`..;/`, `%2f`, `//`, `;`, `?`) | D1: 5 familias × 4 objetivos y un barrido de 10 objetivos × 5 familias (1431 rutas): codificación (%2e, %252e, overlong, %u), delimitadores (`?raw??`, `;`, `#`, `%00`, `::$DATA`), barras (`\`, `%5c`, `//`, `..;/`), Unicode y Windows |
+| CVE-2025-30208 (Vite): `?raw??` esquiva `server.fs.deny` | Un sufijo de query puede desactivar la lista de denegación | D1 «delimitadores»: `.env?raw??`, `?import&raw??`, `?.css`, `?inline`... |
+| *WorstFit* (DEVCORE, 2025): *best-fit* de Windows convierte U+FF0E/U+FF0F/U+FF3C... en `.` `/` `\` | Un nombre «seguro» se vuelve traversal/dotfile al convertir | D1 «unicode» y D6: 16 puntos y 12 barras parecidos, invisibles, bidi (Trojan Source), TAG, compatibilidad NFKC, NFD, UTF-8 overlong/inválido |
+| CVE-2023-45283/45284 (Go): nombres reservados de Windows (`CON`, `COM1 `, `COM¹`) y `\??\` | Abrir `CON`/`NUL` bloquea o toca dispositivos | D2: 18 nombres reservados (con extensión, espacio, punto, `::$DATA`, superíndices) → 404 inmediato |
+| *An Exploration of JSON Interoperability Vulnerabilities* (Bishop Fox) | Claves duplicadas, comentarios, truncado, floats/enteros, basura final, `Content-Type` ignorado | D5: 28 tipos MIME × cuerpo con basura final, 56 cuerpos hostiles y 12 formularios (comentarios, NaN, BOM, UTF-16/32, surrogates, tipos cruzados `"5"`, anidado 5000) y formularios |
+| Bypass de CSRF: `Origin: null`, Referer suprimido, sufijo/userinfo/fragmento en el host, cookie tossing, `SameSite` ≠ `same-origin` | `Sec-Fetch-Site` ausente o `Origin` mal comparado | D4: 22 casos de Origin, 8 de Referer, 13 de Sec-Fetch-Site, 8 Content-Type de formulario, cabeceras contradictorias y Origin duplicado |
+| Linux: symlinks, FIFO, `/proc`, nombres con `\ % \n \t` | El servidor nativo sigue symlinks y bloquea al abrir una FIFO | D3 y P (solo se pueden ejecutar en Linux/macOS) |
+
+**Hallazgos nuevos (todos reproducidos antes de corregirlos y verificados por mutación):**
+
+| # | Hallazgo | Corrección |
+|---|---|---|
+| 5 | **Symlinks en `pb_public` se servían** (Linux: `/link.txt` devolvía un archivo de fuera del directorio) y **una FIFO colgaba la petición para siempre** (DoS) | Auditoría de arranque con `$filepath.walkDir` (no sigue enlaces): `PBMINI_PUBLIC_AUDIT=strict` (por defecto) aborta; `warn` los bloquea en ejecución con una lista de denegación por runtime |
+| 6 | **Respaldos y secretos no ocultos** servibles desde `pb_public` (`.bak .sql .pem .log .db .ini id_rsa Dockerfile package.json`, `~`) | Lista de denegación (solo en la ruta estática y en `ctx.file`) + la misma comprobación en la auditoría de arranque |
+| 7 | **Nombres cortos 8.3 (`ENV~1`), dispositivos de Windows (`CON`, `NUL`), flujos NTFS (`:$DATA`), caracteres `: * ? " < > \|`** | Rechazados en la ruta estática y en `ctx.file` |
+| 8 | **Segmentos con caracteres de compatibilidad Unicode** (NFKC distinto del original), bidi aislado (U+2066–2069), rellenos invisibles, TAG | `safeSegment` exige `s.normalize("NFKC") === s` y amplía la lista de caracteres prohibidos |
+| 9 | **JSON con tipos cruzados**: `{"n":"5"}` y `{"ok":"true"}` se aceptaban como número/booleano | En JSON los tipos son estrictos; en formularios y query siguen siendo cadenas |
+| 10 | **CSRF**: sin `Sec-Fetch-Site`, `Origin` ni `Referer` (navegador antiguo con Referer suprimido o `<form>` en un cliente que no los envía) la escritura con cookie se aceptaba | Ese caso ambiguo solo se acepta si la petición es «no simple» (`Content-Type: application/json` o `X-Requested-With`), algo que un `<form>` entre sitios no puede fabricar. `Sec-Fetch-Site: same-origin\|none` válido sigue bastando |
+
+**Matriz de cobertura por sistema operativo** (ejecutado: Windows 10 nativo y Ubuntu en WSL; macOS no probado):
+
+| Área | Windows | Linux | Nota |
+|---|---|---|---|
+| Dotfiles, sensibles, CSRF, JSON, Unicode, protocolo, fuzzing | ✔ ejecutado | ✔ ejecutado | Mismas pruebas, mismo resultado |
+| Nombres 8.3, dispositivos, `::$DATA`, `\` | ✔ ejecutado | ✔ (404 por el guardia) | En Linux el guardia los bloquea aunque el SO no los interprete (el sitio puede desarrollarse en Windows y desplegarse en Linux) |
+| Symlinks y FIFO (D3, P016–P018) | omitido (sin privilegio) | ✔ ejecutado | Mutación: sin el guardia, `/link.txt` devuelve 200 y `/pipe` se cuelga |
+| Nombres con `\ % \n \t` NFD y bidi existentes en disco | omitido (inválidos en NTFS) | ✔ ejecutado | |
+| `/proc/self/environ`, `/etc/passwd`, `/dev/zero` | omitido | ✔ ejecutado | |
+| Sensibilidad a mayúsculas | `/PUB.TXT` sirve `pub.txt` (inofensivo) | `/PUB.TXT` → 404 | Los bloqueos usan `/i` para cubrir ambos |
+
+Límites que siguen abiertos: carreras TOCTOU (un symlink creado *después* del arranque no está en la lista de denegación; exige permiso de escritura en `pb_public`, por eso el despliegue debe montarlo de solo lectura),
+macOS (APFS normaliza nombres a NFD y es insensible a mayúsculas: sin probar), `Origin` duplicado (se evalúa solo el primero) y la heurística de `~[0-9]` (rechaza también archivos legítimos como `a~1b`).
+Los comandos de la CLI de PocketBase (`superuser upsert`, `migrate`) cargan los hooks y por tanto ejecutan la auditoría: con un `pb_public` sucio abortan (usa `PBMINI_PUBLIC_AUDIT=warn` solo en desarrollo).
