@@ -1,0 +1,44 @@
+name: pbmini security
+
+on:
+  push:
+    branches: [main]
+    paths: ["examples/pbmini/**", ".github/workflows/pbmini-security.yml"]
+  pull_request:
+    paths: ["examples/pbmini/**", ".github/workflows/pbmini-security.yml"]
+  schedule:
+    - cron: "17 5 * * *" # diario: detecta cambios de comportamiento en nuevas versiones de PocketBase
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Versión de PocketBase a probar (p. ej. 0.40.5)"
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pbmini-security-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  security:
+    name: PocketBase ${{ matrix.version }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # "latest" no bloquea PRs (puede romperse por una release ajena), pero sí falla el job programado y avisa.
+    continue-on-error: ${{ matrix.version == 'latest' && github.event_name == 'pull_request' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        version: ["0.40.5", "latest"]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Lint + suites de seguridad
+        env:
+          PB_VERSION: ${{ github.event.inputs.version || matrix.version }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: examples/pbmini/security/ci.sh "$PB_VERSION" "$RUNNER_TEMP/pb"
+      - name: Logs del servidor (si falla)
+        if: failure()
+        run: find "$RUNNER_TEMP" -name log -path '*tmp*' -exec tail -n 40 {} + 2>/dev/null || true

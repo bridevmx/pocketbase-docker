@@ -18,8 +18,9 @@ chk TOP-SECRET 307 /../outside/secret.txt; chk TOP-SECRET 200 /%2e%2e/outside/se
 echo "# \$apis.static: traversal bloqueado"; chk TOP-SECRET 404 /st/%2e%2e/outside/secret.txt
 echo "# Conocidos: dotfiles y symlinks SÍ se sirven (debe auditarse el contenido de pb_public)"
 chk - 200 /.env; chk - 200 /link.txt
-echo "# Ruta insegura a propósito: %2f decodificado -> traversal real (debe FALLAR el chequeo)"
-chk TOP-SECRET 200 /bad/read/..%2foutside%2fsecret.txt
+echo "# Ruta insegura a propósito: %2f decodificado -> traversal real. Si deja de filtrar, PocketBase cambió: revisar SECURITY.md"
+vuln(){ out=$(curl -s --path-as-is -m5 "$B$1"); if grep -q "$2" <<<"$out"; then echo "ok   (vulnerable como se documenta) $1"; else echo "FAIL ya no reproduce la debilidad documentada: $1"; fail=1; fi; }
+vuln /bad/read/..%2foutside%2fsecret.txt TOP-SECRET
 echo "# Auth"; chk - 401 /admin/users; chk - 401 /area/x/y; chk - 200 /admin/open
 echo "# XSS"; chk '<script>' 200 '/xss/auto?q=<script>x</script>'
 echo "# Errores enmascarados"; chk hunter2 400 /throw
