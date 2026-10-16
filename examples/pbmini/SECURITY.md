@@ -58,13 +58,12 @@ vinculación OAuth2): ninguno es de routing/archivos; los de 2026 están corregi
 | Redirects | `c.redirect` solo `"/ruta"` (rechaza `//`, `/\`, esquemas, control) |
 | Cabeceras | CSP, Referrer-Policy, nosniff, X-Frame-Options, Permissions-Policy, CORP en rutas custom |
 | Errores | Excepciones => 500 genérico; detalle solo en logs |
-| Abuso | `bodyLimit` 1 MiB por defecto (configurable); rate limit 120/min/IP/ruta (aprox., en `$app.store()`; usa `rateLimit:false` o ajusta) |
+| Abuso | `bodyLimit` 1 MiB por defecto (configurable); ~~rate limit propio~~ (reemplazado en la Ronda 4 por el limitador **nativo** de PocketBase) |
 | Rutas reservadas | `/api/` y `/_/` requieren `allowSystemPrefix`; `/` y `prefijo/` requieren `prefix:true` |
 
 ### Límites conocidos (no resueltos por pbmini)
 - CORS `*` global de PocketBase y el fallback `index.html` de `publicDir` (usar `--indexFallback=false` si no es una SPA).
 - `publicDir`/`$apis.static` nativos siguen sirviendo symlinks y dotfiles: en `pb_public` usa `c.file` o audita con CI.
-- El rate limit no es atómico ni persistente; para producción usa también el limitador nativo de PocketBase o el proxy.
 - El código de `pb_hooks` tiene acceso total al sistema: revisar dependencias, montar de solo lectura.
 
 ---
@@ -126,7 +125,7 @@ Se verificó por **mutación** (desactivar reglas de colección, protección de 
 
 ## Límites y riesgos residuales (no resueltos / no probados)
 - **Filtrado post-consulta por regla**: `c.find` aplica `listRule` tras `findRecordsByFilter`; una página puede devolver menos de `limit` filas (no filtra por conteo). Reglas muy costosas => N consultas por página (máx. 100).
-- **Rate limit** aproximado y por proceso; con varias réplicas se multiplica. `e.realIP()` solo es fiable si configuras los *trusted proxy headers* de PocketBase tras tu proxy.
+- **Rate limit**: ahora es el nativo de PocketBase (Ronda 4). `realIP` solo es fiable tras un proxy si configuras los *trusted proxy headers* de PocketBase.
 - **CSRF**: PocketBase autentica con cabecera `Authorization` (no cookie); si añades sesiones por cookie necesitas tokens CSRF y `SameSite`.
 - **Sin cubrir**: subida de archivos, SSE/WebSocket, `$http` (SSRF), normalización Unicode (NFC/homógrafos), HTTP request smuggling (depende del proxy), TLS/HSTS (termina en el proxy), y fugas por tiempo (timing).
 - Un hook que llame `$app`/`$os` directamente salta todos estos controles: el lint de CI es obligatorio.
