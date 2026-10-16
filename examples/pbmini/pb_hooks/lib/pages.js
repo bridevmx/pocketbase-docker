@@ -5,7 +5,7 @@ module.exports = function (app) {
   const root = `${__hooks}/pages`;
   const fail = (m) => { throw new Error("pbmini pages: " + m); };
   const METHODS = { get: "GET", post: "POST", put: "PUT", patch: "PATCH", delete: "DELETE" };
-  const ROUTE_KEYS = ["auth", "params", "query", "queries", "cache", "rateLimit", "bodyLimit", "unknownQuery"];
+  const ROUTE_KEYS = ["auth", "params", "query", "queries", "cache", "bodyLimit", "unknownQuery"];
   const MOD_KEYS = ROUTE_KEYS.concat(["body", "get", "post", "put", "patch", "delete"]);
   const list = (dir) => $os.readDir(dir).map((d) => ({ name: d.name(), dir: d.isDir(), type: Number(d.type()) })).sort((a, b) => (a.name < b.name ? -1 : 1));
 

@@ -155,3 +155,28 @@ Hallazgos técnicos de esta ronda
 - HTML enriquecido guardado en la base (campo `editor`) se muestra **escapado**: seguro por defecto; mostrarlo exige un sanitizador explícito (no incluido a propósito: un sanitizador casero es un riesgo de mXSS).
 - Con `--indexFallback=false` las URLs inexistentes devuelven 404 real (verificado) en vez de `index.html` con 200.
 - `docker-compose.yml` de ejemplo: **no probado** (en este entorno hay cliente Docker pero no daemon); solo validado con `docker compose config`.
+
+---
+# Ronda 4: auditoría "no reinventar la rueda" (doc oficial + pruebas)
+
+Se leyó la documentación de PocketBase (hooks de records, reglas, autenticación, producción, SDK/SSR, ajustes) y se midió lo que la doc no aclara.
+Consecuencias en el código (todas verificadas con `run-mini.sh`, 313 comprobaciones):
+
+| Lo que hacía pbmini | Veredicto | Cambio |
+|---|---|---|
+| Limitador de peticiones propio | **Reinventado**: el limitador nativo SÍ aplica a rutas de hooks (exactas, prefijo `/…/` y `GET /ruta`) y no se evade con `X-Forwarded-For` | Eliminado (`rateLimit` ya no existe y es error al registrar). Migración de ejemplo + aviso al arrancar (`onServe`) si está desactivado |
+| Comprobaciones de auth inline (401/403) | **Reinventado**: existen middlewares nativos | Se usan `$apis.requireAuth()` / `requireSuperuserAuth()` (un usuario normal en ruta superuser recibe 403 nativo) |
+| `canAccessRecord` + `publicExport` en `c.find` | **Nativo y documentado** (ejemplo oficial de `routerAdd` + `canAccessRecord`) | Se mantiene; solo añade filtros constantes y `sort` limitado |
+| Restricciones de filtro/orden | La API REST ya bloquea hidden/`@collection`/`@request` (400/403); los hooks (`$app.*`) no | Se mantiene, pero solo porque los hooks no las tienen (documentado) |
+| Escrituras | PocketBase ya las valida con sus reglas | **No se implementan**; se descartó la "escritura declarativa" |
+| Login/sesiones | Token JWT sin estado, revocación por cambio de contraseña (verificado) | **No se implementan**. Solo se lee la cookie `pb_auth` del SDK |
+
+## Sesión por cookie: lo medido
+Validar con `$app.findAuthRecordByToken(token, "auth")` es suficiente (lo hace PocketBase): firma alterada, payload alterado con firma original,
+`alg=none`, token de archivo, JSON roto, token no-string, cookie de 9 KB → todos anónimos (401); `record` falso dentro de la cookie se ignora;
+`Authorization` tiene prioridad sobre la cookie; cambiar la contraseña invalida el token (cookie y cabecera) y no afecta a otros usuarios.
+Con cookie hay riesgo CSRF (credencial ambiental): los métodos que cambian estado exigen `Sec-Fetch-Site` same-origin/none (cross-site/same-site → anónimo).
+La API nativa no lee la cookie, así que no se amplía su superficie.
+
+Riesgos residuales: la cookie escrita por JS no puede ser `HttpOnly` (mismo riesgo que `localStorage`; mitiga el CSP); "cookie tossing" desde un subdominio solo puede degradar a anónimo
+(la primera `pb_auth` manda), nunca suplantar a otro usuario; un cliente sin `Sec-Fetch-Site` (no navegador) no es vector CSRF; tokens robados siguen siendo válidos hasta expirar o cambiar la contraseña (no hay logout en servidor, igual que en PocketBase).

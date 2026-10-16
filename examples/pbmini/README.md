@@ -67,16 +67,38 @@ En la plantilla tienes `.Q` (query validada), `.P` (params), `.User` (usuario au
 | `c.file(dirRelativo, ruta)` | sirve un archivo sin symlinks, dotfiles ni traversal |
 | `c.auth` | registro autenticado (`null` en rutas con `cache`) |
 
-Opciones de ruta: `auth`, `params`, `query`, `body` (POST/PUT/PATCH/DELETE), `queries`, `cache: {maxAge, server}`, `rateLimit: {max, windowSec}|false`,
+Opciones de ruta: `auth`, `params`, `query`, `body` (POST/PUT/PATCH/DELETE), `queries`, `cache: {maxAge, server}`,
 `bodyLimit`, `unknownQuery: "ignore"`. Cualquier opción desconocida (un typo) **aborta el arranque**.
 
 ## Reglas de oro
 1. En `pages/` y `routes.js` **solo** la API `c`. `$app`, `$os`, `$http`, `e.*`, `require` los bloquea `security/lint.sh` (CI).
 2. Nunca construyas filtros con texto del usuario: declara la consulta y pasa parámetros.
-3. Autenticación y registro de usuarios: usa lo de PocketBase (API/SDK). pbmini lee `Authorization`; no implementa sesiones propias.
-4. Prueba: `examples/pbmini/security/run-mini.sh /ruta/a/pocketbase` (278 comprobaciones).
+3. Login, registro, escritura y límite de peticiones los hace PocketBase (SDK/API/ajustes). Mira la tabla de abajo antes de añadir nada.
+4. Prueba: `examples/pbmini/security/run-mini.sh /ruta/a/pocketbase` (313 comprobaciones).
+
+## Qué hace PocketBase y qué añade pbmini (no reinventamos la rueda)
+| Tema | Lo hace PocketBase (nativo) | pbmini |
+|---|---|---|
+| Login, registro, OAuth, OTP | API/SDK (`authWithPassword`…) | **nada** |
+| Sesión | token JWT sin estado; cambiar la contraseña lo revoca | lee la cookie `pb_auth` del SDK y **PocketBase valida el token** (`findAuthRecordByToken`); `record` de la cookie se ignora |
+| Escrituras (crear/editar/borrar) | API REST + `createRule`/`updateRule` + validación de campos | **nada**: usa el SDK desde el navegador o la API |
+| Reglas de acceso | `listRule`/`viewRule`… en la API REST | en consultas del servidor aplica **la misma regla** con `canAccessRecord` (patrón de la doc) |
+| Límite de peticiones | limitador nativo (Settings > Rate limiting); **sí aplica a rutas de hooks** (verificado) | **nada**; la migración `1700000100_rate_limits.js` lo activa; avisa al arrancar si está apagado |
+| Auth por ruta | `$apis.requireAuth()`/`requireSuperuserAuth()`, `bodyLimit` | los usa como middleware; obliga a declarar `auth` |
+| Plantillas | `$template` (autoescape) | páginas por archivos, layout y parciales encima de `$template` |
+| Filtros/orden seguros | la API REST bloquea `@collection`, campos ocultos… | `$app.*` en hooks **no** tiene esas protecciones: por eso las consultas son constantes + parámetros |
+| Cache-Control, CSP, parser de query estricto, archivos sin symlinks | no existe (verificado) | sí |
+
+## Sesión desde el navegador (cookie del SDK)
+```js
+// En tu JS de pb_public/ (lo carga el layout con <script src="/auth.js"> por el CSP)
+await pb.collection("users").authWithPassword(email, pass);
+document.cookie = pb.authStore.exportToCookie({ httpOnly: false, sameSite: "Strict", secure: true });   // cookie `pb_auth`
+```
+Las páginas con `auth: "user"` y `c.auth` ya funcionan por cookie. Con cookie, los métodos que cambian estado (POST/PUT/PATCH/DELETE) solo
+se aceptan si el navegador declara `Sec-Fetch-Site: same-origin|none` (anti‑CSRF). La API nativa `/api/*` **no** lee la cookie.
+Una cookie escrita desde JS no puede ser `HttpOnly` (igual que `localStorage`): el CSP estricto es la mitigación (recomendada por la doc del SDK).
 
 ## Límites actuales
-- Aún no hay escritura declarativa (crear/editar registros desde un `post`); se hará con la misma idea (esquema + reglas `createRule`/`updateRule`).
 - HTML enriquecido guardado en la base se muestra escapado (seguro). Para mostrarlo hace falta un sanitizador decidido a propósito (o usar texto/markdown).
-- Páginas `auth: "user"` requieren enviar `Authorization` (fetch/SDK); el login por cookie para navegación clásica no está implementado.
+- Los hooks de PocketBase (`pb_hooks`) tienen acceso total al sistema: revisa dependencias y monta la carpeta en solo lectura.

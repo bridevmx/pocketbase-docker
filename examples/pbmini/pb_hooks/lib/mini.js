@@ -5,7 +5,7 @@
 const AUTH = { public: 1, user: 1, superuser: 1 };
 const SYSTEM_PREFIX = /^\/(api|_)(\/|$)/;
 const METHODS = { GET: 1, POST: 1, PUT: 1, PATCH: 1, DELETE: 1 };
-const DEFAULTS = { bodyLimit: 1 << 20, rateLimit: { max: 120, windowSec: 60 } };
+const DEFAULTS = { bodyLimit: 1 << 20 };
 const LIM = { rawQuery: 2048, params: 32, multi: 10, bodyKeys: 64, strMax: 100, cacheEntries: 1000, cacheBytes: 256 * 1024, storeMax: Number($os.getenv("PBMINI_STORE_MAX")) || 20000, page: 1000, limit: 100 };
 const RESERVED = ["__proto__", "constructor", "prototype", "hasOwnProperty", "toString", "valueOf", "isPrototypeOf", "__defineGetter__", "__defineSetter__", "__lookupGetter__", "__lookupSetter__"];
 const table = {}; // "METHOD /patrón" -> ruta
@@ -160,13 +160,12 @@ function matchesEtag(e, etag) {
 }
 
 // ---- caché de servidor (sólo strings JSON en $app.store(): los objetos JS no cruzan runtimes) ----
-const CK = "pbmini:c:", RK = "pbmini:rl:";
+const CK = "pbmini:c:";
 function purgeStore() {
   const store = $app.store(), now = Date.now(), ks = store.keys();
   for (let i = 0; i < ks.length; i++) {
     const k = ks[i];
     if (k.indexOf(CK) === 0) { try { if (JSON.parse(store.get(k)).exp < now) store.remove(k); } catch (_) { store.remove(k); } }
-    else if (k.indexOf(RK) === 0) { const p = k.split(":"); if ((Number(p[p.length - 1]) + 1) * Number(p[p.length - 2]) * 1000 < now) store.remove(k); }
   }
 }
 function cacheGet(key) {
@@ -178,17 +177,6 @@ function cachePut(key, o) {
   const store = $app.store();
   if (store.length() >= LIM.storeMax) { purgeStore(); if (store.length() >= LIM.storeMax) return; } // lleno: no cachear (nunca desalojar)
   store.set(CK + key, JSON.stringify(o));
-}
-
-function rateLimited(e, route) {
-  const cfg = route.opts.rateLimit === false ? null : Object.assign({}, DEFAULTS.rateLimit, route.opts.rateLimit);
-  if (!cfg) return false;
-  const win = Math.floor(Date.now() / 1000 / cfg.windowSec), store = $app.store();
-  const key = `${RK}${e.realIP()}:${route.key}:${cfg.windowSec}:${win}`;
-  const n = (store.get(key) || 0) + 1; // aproximado (no atómico)
-  store.set(key, n);
-  if (store.length() > LIM.storeMax) purgeStore();
-  return n > cfg.max;
 }
 
 // ---- consultas preparadas ----------------------------------------------------
@@ -308,13 +296,49 @@ function load() {
   if (exists(`${__hooks}/routes.js`)) require(`${__hooks}/routes.js`)(module.exports);
   if (exists(`${__hooks}/pages`)) require(`${__hooks}/lib/pages.js`)(module.exports);
 }
+// ---- sesión = token de PocketBase ------------------------------------------------------------------
+// No hay login, sesiones ni revocación propios. El navegador manda la cookie `pb_auth` del SDK oficial
+// ({"token":"<JWT>","record":{...}}); sólo se usa el token y lo valida PocketBase (firma, expiración, tokenKey:
+// cambiar la contraseña lo revoca). `record` de la cookie se IGNORA. La cabecera Authorization nativa tiene prioridad.
+// La API nativa de PocketBase (/api/*) no lee esta cookie: sólo las rutas de pbmini.
+const JWT_RE = /^[A-Za-z0-9_-]{1,2048}\.[A-Za-z0-9_-]{1,2048}\.[A-Za-z0-9_-]{0,2048}$/;
+function sessionToken(e) {
+  const h = e.request.header.get("Cookie");
+  if (!h || h.length > 8192) return null;
+  const m = /(?:^|;\s*)pb_auth=([^;]*)/.exec(h); // primera ocurrencia
+  if (!m) return null;
+  try { const t = JSON.parse(decodeURIComponent(m[1])).token; return typeof t === "string" && JWT_RE.test(t) ? t : null; } catch (_) { return null; }
+}
+// Con cookie hay credencial ambiental => CSRF. Métodos que cambian estado sólo aceptan la cookie si el navegador
+// declara same-origin/none (Fetch Metadata). Sin la cabecera (cliente no-navegador) no hay CSRF posible.
+function csrfOk(e) {
+  const m = e.request.method;
+  if (m === "GET" || m === "HEAD" || m === "OPTIONS") return true;
+  const sfs = e.request.header.get("Sec-Fetch-Site");
+  return !sfs || sfs === "same-origin" || sfs === "none";
+}
+function cookieAuth(e) {
+  if (!e.auth) {
+    const t = sessionToken(e);
+    if (t && csrfOk(e)) { try { e.auth = $app.findAuthRecordByToken(t, "auth"); } catch (_) { /* inválido/expirado/revocado => anónimo */ } }
+  }
+  return e.next();
+}
+
 function register() {
   try {
     load();
     for (const k in table) {
       const r = table[k];
-      routerAdd(r.method, r.pattern, (e) => require(`${__hooks}/lib/mini.js`).dispatch(e), $apis.bodyLimit(r.opts.bodyLimit || DEFAULTS.bodyLimit));
+      // Middleware nativo de PocketBase: cookie del SDK -> e.auth, luego requireAuth/requireSuperuserAuth y bodyLimit.
+      const mws = [new Middleware((e) => require(`${__hooks}/lib/mini.js`).cookieAuth(e), -1000, "pbmini_cookie_auth")];
+      if (r.auth === "user") mws.push($apis.requireAuth());
+      else if (r.auth === "superuser") mws.push($apis.requireSuperuserAuth());
+      mws.push($apis.bodyLimit(r.opts.bodyLimit || DEFAULTS.bodyLimit));
+      routerAdd(r.method, r.pattern, (e) => require(`${__hooks}/lib/mini.js`).dispatch(e), ...mws);
     }
+    // onServe corre tras las migraciones (aquí ya se ve el valor real). El handler va aislado: sólo globals.
+    $app.onServe().bindFunc((e) => { try { if (!$app.settings().rateLimits.enabled) console.log("pbmini: AVISO el limitador nativo de PocketBase está DESACTIVADO (Settings > Application > Rate limiting). Ver README."); } catch (_) {} return e.next(); });
   } catch (err) {
     console.log("pbmini: registro abortado:", String(err));
     if ($os.getenv("PBMINI_ON_ERROR") !== "warn") $os.exit(1);
@@ -330,10 +354,6 @@ function dispatch(e) {
   const fail = (code, msg, extra) => e.json(code, Object.assign({ error: msg }, extra || {}));
   if (!route) return fail(404, "not found");
   try {
-    const level = route.auth;
-    if (level === "user" && !e.auth) return fail(401, "authentication required");
-    if (level === "superuser" && !e.hasSuperuserAuth()) return fail(e.auth ? 403 : 401, e.auth ? "forbidden" : "authentication required");
-    if (rateLimited(e, route)) { h.set("Retry-After", "60"); return fail(429, "too many requests"); }
     const params = validateParams(e, route);
     if (!params) return fail(404, "not found");
     const pq = parseQuery(e, route);
@@ -359,17 +379,13 @@ function dispatch(e) {
   }
 }
 
-const OPT_KEYS = ["auth", "params", "query", "body", "queries", "cache", "rateLimit", "bodyLimit", "unknownQuery", "allowSystemPrefix", "prefix"];
+const OPT_KEYS = ["auth", "params", "query", "body", "queries", "cache", "bodyLimit", "unknownQuery", "allowSystemPrefix", "prefix"];
 function route(method, pattern, opts, handler, internal) {
   if (typeof opts === "function") { handler = opts; opts = {}; }
   const fail = (m) => { throw new Error(`pbmini: ${method} ${pattern}: ${m}`); };
   if (opts) for (const k in opts) if (OPT_KEYS.indexOf(k) < 0) fail(`opción desconocida "${k}" (¿error de tipeo? una opción ignorada puede desactivar un control)`);
   if (opts && opts.unknownQuery !== undefined && opts.unknownQuery !== "ignore") fail('unknownQuery solo admite "ignore"');
   if (opts && opts.bodyLimit !== undefined && !(Number.isInteger(opts.bodyLimit) && opts.bodyLimit >= 1 && opts.bodyLimit <= 32 * 1024 * 1024)) fail("bodyLimit debe ser entero 1..33554432");
-  if (opts && opts.rateLimit !== undefined && opts.rateLimit !== false) {
-    const r = opts.rateLimit;
-    if (!r || typeof r !== "object" || (r.max !== undefined && !(Number.isInteger(r.max) && r.max >= 1)) || (r.windowSec !== undefined && !(Number.isInteger(r.windowSec) && r.windowSec >= 1 && r.windowSec <= 86400))) fail("rateLimit inválido: false o {max, windowSec}");
-  }
   if (!METHODS[method]) fail("método no soportado");
   if (typeof pattern !== "string" || pattern.charAt(0) !== "/") fail("el patrón debe empezar con '/'");
   if (!opts || !AUTH[opts.auth]) fail("falta `auth: 'public' | 'user' | 'superuser'` (deny by default)");
@@ -416,4 +432,4 @@ function route(method, pattern, opts, handler, internal) {
 }
 
 const mk = (m) => (p, o, h) => route(m, p, o, h);
-module.exports = { dispatch, register, route, get: mk("GET"), post: mk("POST"), put: mk("PUT"), patch: mk("PATCH"), del: mk("DELETE") };
+module.exports = { dispatch, register, route, cookieAuth, get: mk("GET"), post: mk("POST"), put: mk("PUT"), patch: mk("PATCH"), del: mk("DELETE") };

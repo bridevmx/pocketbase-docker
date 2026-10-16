@@ -9,7 +9,8 @@ module.exports = (app) => {
   app.get("/hi", { auth: "public", query: { name: { type: "string", max: 50 } } }, (c) => c.view("home", { name: c.q.name }));
   app.get("/go", { auth: "public", query: { to: { type: "string", max: 200 } } }, (c) => c.redirect(c.q.to));
   app.get("/boom", { auth: "public" }, () => { throw new Error("db password is hunter2"); });
-  app.get("/rl", { auth: "public", rateLimit: { max: 3, windowSec: 60 } }, (c) => c.text("ok"));
+  app.get("/rl", { auth: "public" }, (c) => c.text("ok"));   // el límite lo pone el limitador NATIVO (settings)
+  app.post("/secure-post", { auth: "user" }, (c) => c.json({ ok: true, id: c.auth.id }));
   app.post("/form", { auth: "public", bodyLimit: 1024 }, (c) => c.json({ posted: true }));
 
   // ---- query strict
@@ -32,7 +33,7 @@ module.exports = (app) => {
   app.get("/mine", { auth: "user", queries: Q }, (c) => c.json(c.find("mine")));
   // ---- caché
   app.get("/pub/{id}", { auth: "public", params: { id: "id" }, cache: { maxAge: 60, server: true }, query: { n: { type: "int", min: 0, max: 5000, default: 0 }, m: { type: "bool", default: false } } }, (c) => c.json({ id: c.params.id, n: c.q.n, m: c.q.m, hits: hits(), who: c.auth ? c.auth.id : null }));
-  app.get("/flood/{id}", { auth: "public", rateLimit: false, params: { id: "id" }, cache: { maxAge: 60, server: true } }, (c) => c.json({ id: c.params.id, hits: hits() }));
+  app.get("/flood/{id}", { auth: "public", params: { id: "id" }, cache: { maxAge: 60, server: true } }, (c) => c.json({ id: c.params.id, hits: hits() }));
   app.get("/nocache", { auth: "public" }, (c) => c.json({ hits: hits() }));
   app.get("/hdrcache", { auth: "public", cache: { maxAge: 30 } }, (c) => c.json({ hits: hits() })); // solo cabeceras, sin caché de servidor
   app.get("/storelen", { auth: "public" }, (c) => c.json({ n: $app.store().length() }));

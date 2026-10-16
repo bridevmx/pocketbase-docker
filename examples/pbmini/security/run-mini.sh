@@ -44,8 +44,12 @@ for to in https://evil.example //evil.example '%2f%5cevil.example' 'javascript:a
 chk - - 400 '/go?to=/ok%0d%0aSet-Cookie:x=1'; chk - - 400 '/go?to=/ok%00'   # CRLF/NUL: el parser los rechaza antes del handler
 chk - - 302 '/go?to=/dashboard'; chk - hunter2 500 /boom
 head -c 5000 /dev/zero | tr '\0' a > "$W/big"; chk - - 413 /form -X POST --data-binary @"$W/big"; chk - - 200 /form -X POST; chk - - 400 /form -X POST -d ok   # sin esquema de body, campos no declarados se rechazan
+grep -aq 'limitador nativo de PocketBase está DESACTIVADO' "$W/log" && ok "aviso de arranque: limitador nativo desactivado" || ko "falta el aviso de limitador desactivado"
+# el límite lo aplica PocketBase (nativo) también a rutas de pbmini: lo activamos por la API de settings
+curl -s -o /dev/null -X PATCH "$B/api/settings" -H "Authorization: $TOKSU" -H 'Content-Type: application/json' -d '{"rateLimits":{"enabled":true,"rules":[{"label":"/rl","maxRequests":3,"duration":60}]}}'
 for i in 1 2 3; do curl -s -o /dev/null "$B/rl"; done; chk - - 429 /rl
-chk - - 429 /rl -H 'X-Forwarded-For: 9.9.9.9' -H 'X-Real-IP: 8.8.8.8'   # spoof de IP no evade el límite
+chk - - 429 /rl -H 'X-Forwarded-For: 9.9.9.9' -H 'X-Real-IP: 8.8.8.8'   # spoof de IP no evade el límite nativo
+chk - - 200 /u/abcdefghijklmno                                              # rutas sin regla no se ven afectadas
 for h in content-security-policy referrer-policy x-content-type-options permissions-policy; do hdr "^$h:" /u/abcdefghijklmno; done
 
 echo "################ B. QUERY STRING (parser estricto)"
@@ -133,6 +137,43 @@ chk - 'SECRET-PAGE-LEAK' 200 /_secret; chk - 'SECRET-PAGE-LEAK' 200 /secret; chk
 code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$B/about"); [[ $code == 404 || $code == 405 ]] && ok "POST a página solo-GET => $code" || ko "POST a página solo-GET => $code"
 hdr '^cache-control: no-store' /blog/hello; hdr '^content-security-policy:' /blog/hello; hdr '^content-type: text/html' /blog/hello
 
+echo "################ J. SESIÓN = TOKEN DE POCKETBASE (cookie pb_auth del SDK, validada por PocketBase)"
+ckie(){ python3 -I -c 'import sys,json,urllib.parse;print("pb_auth="+urllib.parse.quote(json.dumps({"token":sys.argv[1],"record":{"id":sys.argv[2] if len(sys.argv)>2 else "forged"}}),safe=""))' "$@"; }
+jwt(){ python3 -I - "$@" <<'PY'
+import sys,base64,json
+mode,tok=sys.argv[1],sys.argv[2]; h,p,s=tok.split('.'); d=lambda x: json.loads(base64.urlsafe_b64decode(x+'='*(-len(x)%4))); e=lambda o: base64.urlsafe_b64encode(json.dumps(o).encode()).decode().rstrip('=')
+if mode=="payload": pl=d(p); pl["id"]="AAAAAAAAAAAAAAA"; print(h+'.'+e(pl)+'.'+s)
+elif mode=="none": print(e({"alg":"none","typ":"JWT"})+'.'+p+'.')
+PY
+}
+AID=$(body "$B/whoami" -H "Authorization: $TOKA" | sed 's/.*"id":"\([^"]*\)".*/\1/'); BID=$(body "$B/whoami" -H "Authorization: $TOKB" | sed 's/.*"id":"\([^"]*\)".*/\1/')
+[[ -n $AID && $AID != "$BID" ]] && ok "ids de usuario obtenidos" || ko "no se pudieron obtener ids"
+chk "\"id\":\"$AID\"" - 200 /whoami -H "Cookie: $(ckie $TOKA)"
+chk "\"id\":\"$AID\"" - 200 /whoami -H "Cookie: $(ckie $TOKA $BID)"                    # record{} de la cookie es ignorado
+chk "\"id\":\"$BID\"" - 200 /whoami -H "Authorization: $TOKB" -H "Cookie: $(ckie $TOKA)"   # Authorization nativo tiene prioridad
+chk - - 401 /whoami -H "Cookie: $(ckie "${TOKA%?}X")"                                  # firma alterada
+chk - - 401 /whoami -H "Cookie: $(ckie "$(jwt payload $TOKA)")"                         # payload alterado, firma original
+chk - - 401 /whoami -H "Cookie: $(ckie "$(jwt none $TOKA)")"                            # alg=none
+FTOK=$(curl -s -X POST "$B/api/files/token" -H "Authorization: $TOKA" | sed 's/.*"token":"\([^"]*\)".*/\1/')
+[[ -n $FTOK ]] && chk - - 401 /whoami -H "Cookie: $(ckie "$FTOK")"                      # token de archivo != sesión
+for c in 'pb_auth=%7Bnope' 'pb_auth=' 'pb_auth=%7B%22token%22%3A%7B%22a%22%3A1%7D%7D' 'pb_auth=%7B%22token%22%3A%22a.b%22%7D' "pb_auth=$(python3 -c 'print("A"*9000)')" 'other=1'; do chk - - 401 /whoami -H "Cookie: $c"; done
+chk "\"id\":\"$AID\"" - 200 /whoami -H "Cookie: $(ckie $TOKA); pb_auth=junk"             # se usa la primera cookie
+chk - - 401 /whoami -H "Cookie: pb_auth=junk; $(ckie $TOKA)"                             # (documentado: cookie tossing => anónimo, nunca otro usuario)
+chk - - 200 /admin/ -H "Cookie: $(ckie $TOKSU)"; chk - - 403 /admin/ -H "Cookie: $(ckie $TOKA)"
+chk '"who":null' - 200 "/pub/abcdefghijklmno" -H "Cookie: $(ckie $TOKA)"; hdr '^cache-control: no-store' /pub/abcdefghijklmno -H "Cookie: $(ckie $TOKA)"
+chk - 'A-DOC' 200 '/api/collections/mine/records' -H "Cookie: $(ckie $TOKA)"           # la API NATIVA de PocketBase no lee la cookie
+chk 'A-DOC' - 200 /mine -H "Cookie: $(ckie $TOKA)"                                      # una consulta de pbmini sí, con las reglas de PocketBase
+echo "## CSRF (la cookie es credencial ambiental): métodos que cambian estado + Sec-Fetch-Site"
+for sfs in cross-site same-site; do chk - - 401 /secure-post -X POST -H "Cookie: $(ckie $TOKA)" -H "Sec-Fetch-Site: $sfs"; done
+for sfs in same-origin none; do chk '"ok":true' - 200 /secure-post -X POST -H "Cookie: $(ckie $TOKA)" -H "Sec-Fetch-Site: $sfs"; done
+chk '"ok":true' - 200 /secure-post -X POST -H "Cookie: $(ckie $TOKA)"                    # cliente no-navegador (sin cabecera)
+chk '"ok":true' - 200 /secure-post -X POST -H "Authorization: $TOKA" -H 'Sec-Fetch-Site: cross-site'   # Authorization no es ambiental
+chk - - 200 /whoami -H "Cookie: $(ckie $TOKA)" -H 'Sec-Fetch-Site: cross-site'           # GET (seguro) permitido
+echo "## revocación NATIVA: cambiar la contraseña invalida el token (sin lista de sesiones propia)"
+curl -s -o /dev/null -X PATCH "$B/api/collections/users/records/$AID" -H "Authorization: $TOKSU" -H 'Content-Type: application/json' -d '{"password":"Other#Pass0rd!","passwordConfirm":"Other#Pass0rd!"}'
+chk - - 401 /whoami -H "Cookie: $(ckie $TOKA)"; chk - - 401 /whoami -H "Authorization: $TOKA"
+chk "\"id\":\"$BID\"" - 200 /whoami -H "Cookie: $(ckie $TOKB)"                          # otros usuarios no se ven afectados
+
 echo "################ F. Rutas mal declaradas deben abortar el arranque"
 bad(){ printf 'module.exports = (app) => { %s };\n' "$2" > "$W.bad.js"; setup "$W.bad.js"
   if grep -q 'pbmini: ' "$W/log" && ! kill -0 $PID 2>/dev/null; then ok "rechazada: $1"; else ko "aceptada: $1"; fi; }
@@ -143,6 +184,7 @@ bad "comodín '/' accidental" 'app.get("/", {auth:"public"}, (c) => c.text("x"))
 bad "prefijo con barra final" 'app.get("/files/", {auth:"public"}, (c) => c.text("x"));'
 bad "prefijo /api/" 'app.get("/api/x", {auth:"public"}, (c) => c.text("x"));'
 bad "duplicada" 'app.get("/x", {auth:"public"}, (c) => c.text("x")); app.get("/x", {auth:"public"}, (c) => c.text("y"));'
+bad "rateLimit (eliminada: lo hace el limitador nativo)" 'app.get("/x", {auth:"public", rateLimit:{max:1}}, (c) => c.text("x"));'
 bad "tipo de parámetro desconocido" 'app.get("/x/{id}", {auth:"public", params:{id:"nope"}}, (c) => c.text("x"));'
 bad "param tipado ausente del patrón" 'app.get("/x", {auth:"public", params:{id:"id"}}, (c) => c.text("x"));'
 bad "campo query __proto__ (clave propia)" 'app.get("/x", {auth:"public", query:JSON.parse("{\"__proto__\":\"int\"}")}, (c) => c.text("x"));'
