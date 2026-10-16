@@ -31,8 +31,16 @@ function compileField(name, spec, fail) {
 }
 function compileSchema(obj, fail) {
   const out = Object.create(null);
-  if (obj) for (const k in obj) out[k] = compileField(k, obj[k], fail);
+  if (obj !== undefined && obj !== null && (typeof obj !== "object" || Array.isArray(obj))) fail("un esquema debe ser un objeto de campos (o, en pages/, el nombre de un archivo de pages/_schemas/)");
+  if (obj) for (const k of Object.keys(obj)) out[k] = compileField(k, obj[k], fail);
   return out;
+}
+// Descripción serializable de un campo compilado (para pbmini:routes, el fuzzer guiado y los tipos).
+function describeField(f) {
+  const d = { type: f.type };
+  ["min", "max", "enum", "required", "default", "multi", "allowEmpty"].forEach((k) => { if (f[k] !== undefined) d[k] = f[k]; });
+  if (f.pattern) d.pattern = f.pattern.source;
+  return d;
 }
 // Devuelve {ok, v}. `raw` puede ser string (query/form) o primitivo JSON (body).
 function checkValue(f, raw, json) { // json=true: el cuerpo ya viene tipado; no se aceptan cadenas como número/booleano ({"n":"5"})
@@ -193,6 +201,18 @@ function purgeStore() {
     if (k.indexOf(CK) === 0) { try { if (JSON.parse(store.get(k)).exp < now) store.remove(k); } catch (_) { store.remove(k); } }
   }
 }
+const tagsExist = (tags) => !tags || tags.every((t) => { try { $app.findCollectionByNameOrId(t); return true; } catch (_) { return false; } });
+// Invalida las entradas de servidor etiquetadas con `tag` (nombre de colección). Recorre el almacén compartido: no depende de estado por VM.
+function invalidateTag(tag) {
+  const store = $app.store(), ks = store.keys(), needle = '"' + tag + '"';
+  for (let i = 0; i < ks.length; i++) {
+    const k = ks[i];
+    if (k.indexOf(CK) !== 0) continue;
+    const v = store.get(k);
+    if (typeof v !== "string" || v.indexOf(needle) < 0) continue;
+    try { if (JSON.parse(v).tags.indexOf(tag) >= 0) store.remove(k); } catch (_) { store.remove(k); }
+  }
+}
 function cacheGet(key) {
   const s = $app.store().get(CK + key);
   if (!s) return null;
@@ -205,7 +225,17 @@ function cachePut(key, o) {
 }
 
 // ---- consultas preparadas ----------------------------------------------------
-function runQuery(e, route, anon, qname, params, opt) {
+// RequestInfo propio para evaluar las reglas de colección: e.requestInfo() releería el cuerpo (ya consumido por el parser JSON estricto => EOF)
+// y además mezclaría cabeceras/consulta arbitrarias del cliente. Las reglas ven: auth, método y el cuerpo YA VALIDADO; query y headers van vacíos.
+function newInfo(e, anon, body) {
+  const info = new RequestInfo();
+  info.method = e.request.method; info.auth = anon ? null : e.auth; info.body = body || {}; info.query = {}; info.headers = {}; info.context = "default";
+  return info;
+}
+const bindable = (v) => (typeof v === "string" && v.length <= 256 && !CTRL.test(v)) || (typeof v === "number" && isFinite(v)) || typeof v === "boolean";
+const hasOwn = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
+// `app` es $app, o el txApp dentro de ctx.tx (usar $app dentro de una transacción provoca interbloqueo).
+function runQuery(app, e, route, anon, qname, params, opt) {
   const qd = route.queries[qname];
   if (!qd) throw new Error(`pbmini: consulta no declarada: ${qname}`);
   params = params || {}; opt = opt || {};
@@ -213,11 +243,23 @@ function runQuery(e, route, anon, qname, params, opt) {
   if (names.length !== qd.placeholders.length || !names.every((n) => qd.placeholders.indexOf(n) >= 0)) throw new Error("pbmini: parámetros no coinciden con los placeholders");
   const bound = {};
   names.forEach((n) => {
-    const v = params[n];
-    if (!(typeof v === "string" && v.length <= 256 && !CTRL.test(v)) && !(typeof v === "number" && isFinite(v)) && typeof v !== "boolean") throw new Error("pbmini: valor de parámetro inválido");
-    bound[n] = v;
+    if (!bindable(params[n])) throw new Error("pbmini: valor de parámetro inválido");
+    bound[n] = params[n];
   });
-  const col = $app.findCollectionByNameOrId(qd.collection);
+  // Filtros opcionales: fragmentos CONSTANTES declarados en la consulta (`filters`). Quien llama solo aporta valores, que se enlazan siempre;
+  // el orden de los fragmentos es el de la declaración y la consulta HTTP nunca aporta texto de filtro ni nombres de campo.
+  let filter = qd.filter;
+  if (opt.where !== undefined && opt.where !== null) {
+    if (typeof opt.where !== "object" || Array.isArray(opt.where)) throw new Error("pbmini: where debe ser un objeto");
+    Object.keys(opt.where).forEach((k) => { if (!hasOwn(qd.filters, k)) throw new Error(`pbmini: filtro no declarado: ${k}`); });
+    Object.keys(qd.filters).forEach((k) => {
+      if (!hasOwn(opt.where, k) || opt.where[k] === undefined || opt.where[k] === null) return;
+      if (!bindable(opt.where[k])) throw new Error("pbmini: valor de filtro inválido");
+      filter = "(" + filter + ") && (" + qd.filters[k].replace("{:v}", "{:f_" + k + "}") + ")";
+      bound["f_" + k] = opt.where[k];
+    });
+  }
+  const col = app.findCollectionByNameOrId(qd.collection);
   let sort = "";
   if (opt.sort !== undefined) {
     if (qd.sort.indexOf(opt.sort) < 0) throw new Error("pbmini: sort no permitido");
@@ -228,14 +270,64 @@ function runQuery(e, route, anon, qname, params, opt) {
     if (!f || f.getHidden()) throw new Error("pbmini: sort sobre campo inexistente u oculto");
   });
   const limit = Math.min(opt.limit === undefined ? 20 : opt.limit, qd.maxLimit);
+  const size = opt.pageSize === undefined ? limit : opt.pageSize; // tamaño de página (el desplazamiento usa éste, no el límite leído)
   const page = opt.page === undefined ? 1 : opt.page;
-  if (!Number.isInteger(limit) || limit < 1 || !Number.isInteger(page) || page < 1 || page > LIM.page) throw new Error("pbmini: paginación inválida");
-  const info = e.requestInfo();
-  if (anon) info.auth = null; // rutas cacheables: nunca evaluar reglas con la identidad del visitante
+  if (!Number.isInteger(limit) || limit < 1 || !Number.isInteger(size) || size < 1 || size > limit || !Number.isInteger(page) || page < 1 || page > LIM.page) throw new Error("pbmini: paginación inválida");
+  const info = newInfo(e, anon, {}); // rutas cacheables (anon): nunca evaluar reglas con la identidad del visitante
   const rule = qd.rule === "view" ? col.viewRule : col.listRule; // null => sólo superuser; "" => público
-  const recs = $app.findRecordsByFilter(qd.collection, qd.filter, sort, limit, (page - 1) * limit, bound);
-  return recs.filter((r) => { try { return $app.canAccessRecord(r, info, rule); } catch (_) { return false; } })
+  const recs = app.findRecordsByFilter(qd.collection, filter, sort, limit, (page - 1) * size, bound);
+  return recs.filter((r) => { try { return app.canAccessRecord(r, info, rule); } catch (_) { return false; } })
     .map((r) => r.publicExport()); // sin campos hidden ni email oculto
+}
+
+// ---- escrituras declaradas (mutations): lista blanca de campos + reglas de colección create/update/delete de PocketBase ----
+const FORBIDDEN_FIELDS = ["id", "created", "updated", "collectionId", "collectionName", "expand", "tokenKey", "password", "passwordConfirm", "oldPassword", "verified", "emailVisibility", "email", "username"];
+function httpError(status, msg) { const err = new Error(msg); err.pbminiStatus = status; return err; }
+function mutate(app, e, route, name, op, id, data) {
+  if (route.method === "GET") throw new Error("pbmini: las escrituras no se permiten en GET (CSRF)");
+  const md = route.mutations[name];
+  if (!md || md.op !== op) throw new Error(`pbmini: mutación no declarada: ${name} (${op})`);
+  const col = app.findCollectionByNameOrId(md.collection);
+  if (col.type !== "base") throw new Error("pbmini: las mutaciones solo admiten colecciones base (las cuentas se gestionan con la API nativa)");
+  let rec;
+  if (op === "create") rec = new Record(col);
+  else {
+    if (typeof id !== "string" || !PARAM_TYPES.id.test(id)) throw httpError(404, "not found");
+    try { rec = app.findRecordById(col.name, id); } catch (_) { throw httpError(404, "not found"); }
+  }
+  let sets = [];
+  if (op !== "delete") {
+    if (data === null || typeof data !== "object" || Array.isArray(data)) throw new Error("pbmini: data debe ser un objeto");
+    const keys = Object.keys(data);
+    keys.forEach((k) => {
+      if (md.fields.indexOf(k) < 0) throw new Error(`pbmini: campo no permitido en la mutación ${name}: ${k}`);
+      const f = col.fields.getByName(k);
+      if (!f || f.type() === "password") throw new Error(`pbmini: campo inexistente o de contraseña: ${k}`);
+      if (!bindable(data[k])) throw new Error(`pbmini: valor inválido en ${k}`);
+    });
+    sets = keys;
+  }
+  const rule = op === "create" ? col.createRule : op === "update" ? col.updateRule : col.deleteRule; // null => solo superuser
+  const info = newInfo(e, false, data && typeof data === "object" ? Object.assign({}, data) : {}); // @request.body de las reglas = los datos de la mutación
+  const denied = "pbmini:denied";
+  try {
+    if (op === "create") {
+      // Igual que la API nativa: la regla de creación se evalúa con el registro ya guardado dentro de una transacción; si no pasa, se revierte.
+      sets.forEach((k) => rec.set(k, data[k]));
+      app.runInTransaction((tx) => { tx.save(rec); if (!tx.canAccessRecord(rec, info, rule)) throw new Error(denied); });
+    } else {
+      // update/delete: la regla se evalúa contra el registro EXISTENTE, antes de aplicar nada (si no, un atacante cambiaría `owner` y pasaría la regla)
+      let allowed = false;
+      try { allowed = app.canAccessRecord(rec, info, rule); } catch (err) { if ($os.getenv("PBMINI_DEBUG") === "1") console.log("pbmini canAccessRecord:", String(err)); }
+      if (!allowed) throw new Error(denied);
+      if (op === "update") { sets.forEach((k) => rec.set(k, data[k])); app.save(rec); } else app.delete(rec);
+    }
+  } catch (err) {
+    if (String(err).indexOf(denied) >= 0) throw httpError(op === "create" ? 403 : 404, op === "create" ? "forbidden" : "not found");
+    app.logger().warn("pbmini mutación rechazada", "route", route.key, "mutation", name, "error", String(err));
+    throw httpError(422, "invalid data");
+  }
+  return op === "delete" ? { id: rec.id } : rec.publicExport();
 }
 
 function buildContext(e, route, params, q, b, state) {
@@ -281,8 +373,42 @@ function buildContext(e, route, params, q, b, state) {
       e.response.header().set("Cache-Control", cacheControl(route, 200, hasCreds(e)));
       return e.fileFS($os.dirFS(base), rel);
     },
-    find: (name, p, opt) => runQuery(e, route, anon, name, p, opt),
-    findOne: (name, p) => { const r = runQuery(e, route, anon, name, p, { limit: 1 }); return r.length ? r[0] : null; },
+    find: (name, p, opt) => runQuery($app, e, route, anon, name, p, opt),
+    findOne: (name, p, opt) => { const r = runQuery($app, e, route, anon, name, p, Object.assign({}, opt, { limit: 1 })); return r.length ? r[0] : null; },
+    // Paginación estándar: usa ctx.query.page / perPage (/ sort) que la opción `paginate` añade al esquema de la ruta. Sin `total` a propósito:
+    // contarlo ignoraría las reglas de la colección y revelaría cuántos registros ocultos existen. `hasMore` sale solo de lo que el usuario puede ver.
+    paginate(name, p, opt) {
+      const pg = route.opts.paginate;
+      if (!pg) throw new Error("pbmini: ctx.paginate requiere la opción `paginate` en la ruta");
+      const perPage = ctx.query.perPage, o = { limit: perPage + 1, pageSize: perPage, page: ctx.query.page };
+      if (pg.sort) o.sort = ctx.query.sort;
+      if (opt && opt.where) o.where = opt.where;
+      const rows = runQuery($app, e, route, anon, name, p, o);
+      return { items: rows.slice(0, perPage), page: o.page, perPage, hasMore: rows.length > perPage };
+    },
+    create: (name, data) => mutate($app, e, route, name, "create", null, data),
+    update: (name, id, data) => mutate($app, e, route, name, "update", id, data),
+    delete: (name, id) => mutate($app, e, route, name, "delete", id),
+    // Transacción: todo o nada. Dentro solo existen find/findOne/create/update/delete (con txApp); no hay $app, correo ni red.
+    tx(fn) {
+      if (typeof fn !== "function") throw new Error("pbmini: ctx.tx requiere una función");
+      if (route.method === "GET") throw new Error("pbmini: ctx.tx no se permite en GET");
+      let out, cause = null;
+      try {
+        $app.runInTransaction((txApp) => {
+          try {
+            out = fn({
+              find: (name, p, opt) => runQuery(txApp, e, route, anon, name, p, opt),
+              findOne: (name, p, opt) => { const r = runQuery(txApp, e, route, anon, name, p, Object.assign({}, opt, { limit: 1 })); return r.length ? r[0] : null; },
+              create: (name, data) => mutate(txApp, e, route, name, "create", null, data),
+              update: (name, id, data) => mutate(txApp, e, route, name, "update", id, data),
+              delete: (name, id) => mutate(txApp, e, route, name, "delete", id),
+            });
+          } catch (err) { cause = err; throw err; } // el rollback lo hace PocketBase; la causa original se relanza abajo
+        });
+      } catch (err) { throw cause || err; }
+      return out;
+    },
     notFound: () => reply(404, "application/json; charset=utf-8", '{"error":"not found"}'),
     forbidden: () => reply(403, "application/json; charset=utf-8", '{"error":"forbidden"}'),
   };
@@ -292,7 +418,7 @@ function buildContext(e, route, params, q, b, state) {
     if (code === 200 && route.opts.cache && !creds) {
       const tag = etagOf(body); h.set("ETag", tag);
       if (matchesEtag(e, tag)) return e.noContent(304);
-      if (state.cacheKey && body.length <= LIM.cacheBytes) cachePut(state.cacheKey, { exp: Date.now() + route.opts.cache.maxAge * 1000, ctype, body, tag });
+      if (state.cacheKey && body.length <= LIM.cacheBytes && tagsExist(route.opts.cache.tags)) cachePut(state.cacheKey, { exp: Date.now() + route.opts.cache.maxAge * 1000, ctype, body, tag, tags: route.opts.cache.tags || [] });
     }
     return e.blob(code, ctype, toBytes(body));
   }
@@ -430,6 +556,17 @@ function register() {
       mws.push($apis.bodyLimit(r.opts.bodyLimit || DEFAULTS.bodyLimit));
       routerAdd(r.method, r.pattern, (e) => require(`${__hooks}/lib/mini.js`).dispatch(e), ...mws);
     }
+    const tags = []; // invalidación de la caché de servidor cuando cambia un registro de una colección etiquetada (cualquier origen: API nativa incluida)
+    for (const k in table) { const t = table[k].opts.cache && table[k].opts.cache.tags; if (t) t.forEach((x) => { if (tags.indexOf(x) < 0) tags.push(x); }); }
+    if (tags.length) {
+      const inv = (e) => { require(`${__hooks}/lib/mini.js`).invalidate(e.record.collection().name); return e.next(); };
+      onRecordAfterCreateSuccess(inv, ...tags); onRecordAfterUpdateSuccess(inv, ...tags); onRecordAfterDeleteSuccess(inv, ...tags);
+      $app.onServe().bindFunc((e) => {
+        // una etiqueta sin colección (typo) nunca invalida: por eso cachePut no guarda nada bajo etiquetas inexistentes (falla hacia "sin caché")
+        tags.forEach((t) => { try { $app.findCollectionByNameOrId(t); } catch (_) { console.log(`pbmini: AVISO cache.tags usa la colección inexistente "${t}": esas rutas no se cachearán en el servidor`); } });
+        return e.next();
+      });
+    }
     // onServe corre tras las migraciones (aquí ya se ve el valor real). El handler va aislado: sólo globals.
     $app.onServe().bindFunc((e) => { try { if (!$app.settings().rateLimits.enabled) console.log("pbmini: AVISO el limitador nativo de PocketBase está DESACTIVADO (Settings > Application > Rate limiting). Ver README."); } catch (_) {} return e.next(); });
   } catch (err) {
@@ -466,13 +603,16 @@ function dispatch(e) {
     }
     return route.handler(buildContext(e, route, params, pq.q, pb.b, state));
   } catch (err) {
+    if (err && err.pbminiStatus) { h.set("Cache-Control", "no-store"); return fail(err.pbminiStatus, String(err.message)); }
     $app.logger().error("pbmini handler error", "route", route.key, "error", String(err)); // detalle sólo en logs
+    if ($os.getenv("PBMINI_DEBUG") === "1") console.log("pbmini handler error:", route.key, String(err)); // depuración local: también por consola
     h.set("Cache-Control", "no-store");
     return fail(500, "internal error");
   }
 }
 
-const OPT_KEYS = ["auth", "params", "query", "body", "queries", "cache", "bodyLimit", "unknownQuery", "allowSystemPrefix", "prefix"];
+const OPT_KEYS = ["auth", "params", "query", "body", "queries", "cache", "bodyLimit", "unknownQuery", "allowSystemPrefix", "prefix", "paginate", "mutations"];
+const NAME_RE = /^[A-Za-z_][A-Za-z0-9_]{0,31}$/, COLL_RE = /^[A-Za-z][A-Za-z0-9_]{0,63}$/, FIELD_RE = /^[A-Za-z_][A-Za-z0-9_]{0,63}$/;
 function route(method, pattern, opts, handler, internal) {
   if (typeof opts === "function") { handler = opts; opts = {}; }
   const fail = (m) => { throw new Error(`pbmini: ${method} ${pattern}: ${m}`); };
@@ -489,7 +629,22 @@ function route(method, pattern, opts, handler, internal) {
   const params = patternParams(pattern);
   const paramTypes = compileSchema(opts.params, fail);
   for (const k in paramTypes) if (!params.some((p) => p.name === k)) fail(`el parámetro tipado ${k} no está en el patrón`);
-  const query = compileSchema(opts.query, fail), body = compileSchema(opts.body, fail);
+  let qspec = opts.query;
+  if (opts.paginate !== undefined) { // paginación estándar: añade page / perPage (/ sort) al esquema de query de la ruta
+    const pgn = opts.paginate;
+    if (method !== "GET") fail("paginate solo en GET");
+    if (!pgn || typeof pgn !== "object" || Array.isArray(pgn)) fail("paginate debe ser {perPage, maxPerPage[, sort]}");
+    Object.keys(pgn).forEach((k) => { if (["perPage", "maxPerPage", "sort"].indexOf(k) < 0) fail(`paginate: opción desconocida "${k}"`); });
+    if (!Number.isInteger(pgn.maxPerPage) || pgn.maxPerPage < 1 || pgn.maxPerPage >= LIM.limit) fail(`paginate.maxPerPage debe ser entero 1..${LIM.limit - 1}`);
+    if (!Number.isInteger(pgn.perPage) || pgn.perPage < 1 || pgn.perPage > pgn.maxPerPage) fail("paginate.perPage debe ser entero 1..maxPerPage");
+    if (pgn.sort !== undefined && (!Array.isArray(pgn.sort) || pgn.sort.length === 0 || pgn.sort.some((x) => typeof x !== "string" || !/^-?[A-Za-z][A-Za-z0-9_]{0,63}$/.test(x)))) fail("paginate.sort debe ser una lista de campos (con - para descendente)");
+    qspec = Object.assign({}, qspec || {});
+    ["page", "perPage", "sort"].forEach((k) => { if (hasOwn(qspec, k) && (k !== "sort" || pgn.sort)) fail(`paginate ya define la query "${k}"`); });
+    qspec.page = { type: "int", min: 1, max: LIM.page, default: 1 };
+    qspec.perPage = { type: "int", min: 1, max: pgn.maxPerPage, default: pgn.perPage };
+    if (pgn.sort) qspec.sort = { enum: pgn.sort.slice(), default: pgn.sort[0] };
+  }
+  const query = compileSchema(qspec, fail), body = compileSchema(opts.body, fail);
   for (const k in query) if (query[k].type === "string" && query[k].max > 1000) fail(`límite de ${k} excesivo`);
   if (opts.body && (method === "GET")) fail("GET no admite body");
   const queries = Object.create(null);
@@ -505,10 +660,48 @@ function route(method, pattern, opts, handler, internal) {
     if (d.rule !== undefined && d.rule !== "list" && d.rule !== "view") fail(`consulta ${name}: rule debe ser list|view`);
     const sort = d.sort === undefined ? [] : d.sort;
     if (!Array.isArray(sort) || sort.some((s) => !/^-?[A-Za-z][A-Za-z0-9_]{0,63}(,-?[A-Za-z][A-Za-z0-9_]{0,63}){0,2}$/.test(s))) fail(`consulta ${name}: sort inválido`);
-    queries[name] = { collection: d.collection, filter: d.filter, placeholders: ph, sort, rule: d.rule || "list", maxLimit: Math.min(d.maxLimit || 50, LIM.limit) };
+    const filters = Object.create(null);
+    if (d.filters !== undefined) {
+      if (!d.filters || typeof d.filters !== "object" || Array.isArray(d.filters)) fail(`consulta ${name}: filters debe ser un objeto {clave: "campo = {:v}"}`);
+      Object.keys(d.filters).forEach((k) => {
+        const fr = d.filters[k];
+        if (!NAME_RE.test(k) || RESERVED.indexOf(k) >= 0) fail(`consulta ${name}: nombre de filtro inválido: ${k}`);
+        if (typeof fr !== "string" || fr.length > 200 || CTRL.test(fr)) fail(`consulta ${name}: filtro ${k} inválido`);
+        if ((fr.match(/\{:v\}/g) || []).length !== 1 || /[{}]/.test(fr.replace("{:v}", ""))) fail(`consulta ${name}: el filtro ${k} debe contener exactamente un {:v} y ningún otro placeholder`);
+        filters[k] = fr;
+      });
+      if (ph.some((n) => /^f_/.test(n))) fail(`consulta ${name}: con filters, los placeholders no pueden empezar por f_`);
+    }
+    if (opts.paginate && (d.maxLimit || 50) < opts.paginate.maxPerPage + 1) fail(`consulta ${name}: maxLimit debe ser >= paginate.maxPerPage + 1 (se lee una fila de más para calcular hasMore)`);
+    queries[name] = { collection: d.collection, filter: d.filter, placeholders: ph, sort, rule: d.rule || "list", maxLimit: Math.min(d.maxLimit || 50, LIM.limit), filters };
+  }
+  const mutations = Object.create(null);
+  if (opts.mutations !== undefined) {
+    if (!opts.mutations || typeof opts.mutations !== "object" || Array.isArray(opts.mutations)) fail("mutations debe ser un objeto");
+    if (method === "GET") fail("mutations no se permite en GET (CSRF)");
+    Object.keys(opts.mutations).forEach((name) => {
+      const m = opts.mutations[name];
+      if (!NAME_RE.test(name) || RESERVED.indexOf(name) >= 0) fail(`mutación con nombre inválido: ${name}`);
+      if (!m || typeof m !== "object") fail(`mutación ${name}: definición inválida`);
+      Object.keys(m).forEach((k) => { if (["collection", "op", "fields"].indexOf(k) < 0) fail(`mutación ${name}: opción desconocida "${k}"`); });
+      if (typeof m.collection !== "string" || !COLL_RE.test(m.collection)) fail(`mutación ${name}: colección no permitida (las de sistema "_xxx" están vetadas)`);
+      if (["create", "update", "delete"].indexOf(m.op) < 0) fail(`mutación ${name}: op debe ser create|update|delete`);
+      if (m.op === "delete") { if (m.fields !== undefined) fail(`mutación ${name}: delete no lleva fields`); }
+      else {
+        if (!Array.isArray(m.fields) || m.fields.length === 0 || m.fields.length > 32) fail(`mutación ${name}: fields requerido (lista blanca de 1..32 campos)`);
+        m.fields.forEach((f) => { if (typeof f !== "string" || !FIELD_RE.test(f) || RESERVED.indexOf(f) >= 0 || FORBIDDEN_FIELDS.indexOf(f) >= 0) fail(`mutación ${name}: campo no permitido: ${f}`); });
+        if (new Set(m.fields).size !== m.fields.length) fail(`mutación ${name}: campos repetidos`);
+      }
+      mutations[name] = { collection: m.collection, op: m.op, fields: m.fields ? m.fields.slice() : [] };
+    });
   }
   const c = opts.cache;
   if (c) {
+    if (c.tags !== undefined) {
+      if (!c.server) fail("cache.tags requiere cache.server (no hay nada que invalidar en la caché del navegador)");
+      if (!Array.isArray(c.tags) || c.tags.length === 0 || c.tags.length > 8 || c.tags.some((t) => typeof t !== "string" || !COLL_RE.test(t))) fail("cache.tags debe ser una lista de 1..8 nombres de colección");
+    }
+    Object.keys(c).forEach((k) => { if (["maxAge", "server", "shared", "tags"].indexOf(k) < 0) fail(`cache: opción desconocida "${k}"`); });
     if (method !== "GET") fail("cache sólo en GET");
     if (opts.auth !== "public") fail("cache sólo en rutas auth:'public' (nunca cachear respuestas personalizadas)");
     if (!Number.isInteger(c.maxAge) || c.maxAge < 1 || c.maxAge > 86400) fail("cache.maxAge debe ser entero 1..86400");
@@ -521,8 +714,25 @@ function route(method, pattern, opts, handler, internal) {
   }
   const key = method + " " + pattern;
   if (table[key]) fail("ruta duplicada");
-  table[key] = { key, method, pattern, auth: opts.auth, opts, handler, params, paramTypes, query, body, queries, page: internal && internal.page };
+  table[key] = { key, method, pattern, auth: opts.auth, opts, handler, params, paramTypes, query, body, queries, mutations, page: internal && internal.page };
 }
 
 // No hay registro global de rutas (routes.js): cada ruta es un archivo de pages/ (lib/pages.js llama a route()).
-module.exports = { dispatch, register, route, cookieAuth, guardPaths };
+// Tabla de rutas como datos puros (sin funciones): la consumen pbmini:routes, el fuzzer guiado por definiciones y la prueba de tipos.
+function routeTable() {
+  load();
+  const fields = (s) => { const o = {}; for (const k of Object.keys(s)) o[k] = describeField(s[k]); return o; };
+  return Object.keys(table).sort().map((k) => {
+    const r = table[k], c = r.opts.cache;
+    return {
+      key: r.key, method: r.method, pattern: r.pattern, auth: r.auth,
+      params: r.params.map((p) => ({ name: p.name, wildcard: p.wildcard, spec: r.paramTypes[p.name] ? describeField(r.paramTypes[p.name]) : null })),
+      query: fields(r.query), body: fields(r.body), queries: Object.keys(r.queries),
+      cache: c ? { maxAge: c.maxAge, server: !!c.server, tags: c.tags || [] } : null,
+      paginate: r.opts.paginate || null, mutations: Object.keys(r.mutations).map((n) => ({ name: n, collection: r.mutations[n].collection, op: r.mutations[n].op, fields: r.mutations[n].fields })), bodyLimit: r.opts.bodyLimit || DEFAULTS.bodyLimit,
+      unknownQuery: r.opts.unknownQuery || "reject", html: !!(r.page && r.page.html),
+    };
+  });
+}
+
+module.exports = { dispatch, register, route, cookieAuth, guardPaths, routeTable, invalidate: invalidateTag };

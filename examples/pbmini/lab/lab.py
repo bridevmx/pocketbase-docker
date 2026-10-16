@@ -78,7 +78,7 @@ def provision(pb_arg):
     return exe
 
 
-def build_sandbox(root, pages, symlinks=True, clean=False, public=None):
+def build_sandbox(root, pages, symlinks=True, clean=False, public=None, hooks_extra=None, i18n=None):
     """Árbol aislado: pb_data / pb_public / pb_hooks. clean=True: pb_public sin señuelos (para pruebas de arranque).
     public: {ruta: contenido | ("link", destino) | ("fifo",)} extra en pb_public. Devuelve True si se pudieron crear symlinks."""
     shutil.rmtree(root, ignore_errors=True)
@@ -88,6 +88,11 @@ def build_sandbox(root, pages, symlinks=True, clean=False, public=None):
     shutil.copytree(os.path.join(ROOT, "pb_hooks", "views"), os.path.join(hooks, "views"))
     shutil.copy(os.path.join(ROOT, "pb_hooks", "main.pb.js"), hooks)
     if pages: shutil.copytree(pages, os.path.join(hooks, "pages"), symlinks=True)
+    if i18n: shutil.copytree(i18n, os.path.join(hooks, "i18n"))
+    for rel, txt in (hooks_extra or {}).items():   # archivos extra de pb_hooks/ (i18n/, mails/, cron/, pbmini.config.js...)
+        full = os.path.join(hooks, rel); os.makedirs(os.path.dirname(full), exist_ok=True)
+        with open(full, "w", newline="
+", encoding="utf-8") as f: f.write(txt)
     def w(p, txt):
         full = os.path.join(root, p); os.makedirs(os.path.dirname(full), exist_ok=True)
         with open(full, "w", newline="\n", encoding="utf-8") as f: f.write(txt)
@@ -162,6 +167,9 @@ def seed(port):
     api(port, "POST", "/api/collections", dict(name="vault", type="base", listRule=None, viewRule=None, fields=[txt("note")]), su)
     api(port, "POST", "/api/collections", dict(name="mine", type="base", listRule="owner = @request.auth.id", viewRule="owner = @request.auth.id",
         fields=[txt("owner"), txt("doc"), dict(name="created", type="autodate", onCreate=True)]), su)
+    api(port, "POST", "/api/collections", dict(name="todos", type="base", listRule="owner = @request.auth.id", viewRule="owner = @request.auth.id",
+        createRule='@request.auth.id != "" && @request.body.owner = @request.auth.id', updateRule="owner = @request.auth.id", deleteRule="owner = @request.auth.id",
+        fields=[txt("title"), dict(name="done", type="bool"), txt("owner"), dict(name="created", type="autodate", onCreate=True)]), su)
     ids = {}
     for t, sl, s, pub in (("hello", "hello", "S-1", True), ("world", "world", "S-2", True), ("private-draft", "private-draft", "TOPSECRET-DRAFT", False),
                           ("<script>alert(1)</script>", "xss-post", "S-3", True)):
@@ -408,6 +416,8 @@ def catalog(ctx):
     cases.extend(attacks.build(sys.modules[__name__], ctx))
     import attacks_deep
     cases.extend(attacks_deep.build(sys.modules[__name__], ctx, attacks))
+    import attacks_v2
+    cases.extend(attacks_v2.build(sys.modules[__name__], ctx, attacks))
 
     # J. Sesión / JWT / CSRF
     cat = "J · Sesión, JWT y CSRF"
@@ -507,7 +517,7 @@ def bad_page_cases():
         ("sort con inyección en la declaración", {"x.js": pg('auth: "public", queries: { q: { collection: "posts", filter: "id != 1", sort: ["title; DROP"] } }, get: (ctx) => ({})')}),
         ("rule de consulta inválida", {"x.js": pg('auth: "public", queries: { q: { collection: "posts", filter: "id != 1", rule: "all" } }, get: (ctx) => ({})')}),
         ("dos parámetros distintos en la misma posición ([a] y [b])", {"[a]/index.js": ok, "[b]/index.js": ok}),
-    ]
+    ] + __import__("attacks_v2").bad_pages()
 
 
 # ----------------------------------------------------------------------------- ejecución
@@ -551,12 +561,14 @@ def run_boot(label, files, exe, tag, public=None, expect_up=False):
     con expect_up=True espera que ARRANQUE. Devuelve (ok, observado); ok=None => omitido (el SO no permite crear el archivo)."""
     d = os.path.join(RUN, f"bad-{tag}"); pg = os.path.join(RUN, f"bad-{tag}-pages")
     shutil.rmtree(pg, ignore_errors=True); os.makedirs(pg)
+    extra = {}
     for rel, content in files.items():
+        if rel.startswith("../"): extra[rel[3:]] = content; continue   # "../i18n/es.json" => pb_hooks/i18n/es.json
         p = os.path.join(pg, rel); os.makedirs(os.path.dirname(p), exist_ok=True)
         with open(p, "w", newline="\n", encoding="utf-8") as f: f.write(content)
     if not files: os.makedirs(os.path.join(pg, "_x"), exist_ok=True)
     ok_make = True
-    build_sandbox(d, pg, symlinks=False, clean=True, public=public)
+    build_sandbox(d, pg, symlinks=False, clean=True, public=public, hooks_extra=extra)
     for rel, v in (public or {}).items():
         full = os.path.join(d, "pb_public", rel)
         if isinstance(v, tuple) and not os.path.lexists(full): ok_make = False
@@ -616,12 +628,12 @@ class Lab:
             # archivos con nombres problemáticos (solo se pueden crear en Linux/macOS): barra invertida, %, NFD, salto de línea, tabulador, bidi, FIFO
             unix_public = {} if IS_WIN else {"pipe": ("fifo",), "back" + chr(92) + "slash.txt": "DOTCANARY:back", "100%.txt": "DOTCANARY:pct", "e" + chr(0x301) + ".txt": "DOTCANARY:nfd",
                                               "newline" + chr(10) + "name.txt": "DOTCANARY:nl", "tab" + chr(9) + "name.txt": "DOTCANARY:tab", chr(0x202e) + "txt.exe": "DOTCANARY:bidi"}
-            links = build_sandbox(root, os.path.join(SEC, "mini", "pages"), public=unix_public)
+            links = build_sandbox(root, os.path.join(SEC, "mini", "pages"), public=unix_public, i18n=os.path.join(SEC, "mini", "i18n"))
             log(f"sandbox aislado creado ({'con' if links else 'SIN'} symlinks; {'' if links else 'Windows sin privilegio de symlink: se omiten 2 casos'})")
-            pb = PB(self.exe, root, PB_PORT, env={"PBMINI_PUBLIC_AUDIT": "warn"}); pb.serve()
+            pb = PB(self.exe, root, PB_PORT, env={"PBMINI_PUBLIC_AUDIT": "warn", "PBMINI_DEBUG": "1"}); pb.serve()
             if not pb.wait_ready(): raise RuntimeError("PocketBase no arrancó:\n" + pb.log()[-800:])
             ver = subprocess.run([self.exe, "--version"], capture_output=True, text=True).stdout.strip().split("version")[-1].strip()
-            ctx = seed(PB_PORT); ctx.update(port=PB_PORT, _symlinks=links)
+            ctx = seed(PB_PORT); ctx.update(port=PB_PORT, _symlinks=links, exe=self.exe, root=root)
             BUS.emit(type="env", version=ver, port=PB_PORT, symlinks=links)
             cases = catalog(ctx); pages = bad_page_cases(); lints = lint_cases()
             if self.only: cases = [c for c in cases if c.id.startswith(tuple(self.only))]; pages = lints = []
