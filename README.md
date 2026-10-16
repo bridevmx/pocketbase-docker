@@ -99,7 +99,7 @@ services:
     build:
       context: .
       args:
-        - VERSION=0.22.10 # Specify the PocketBase version here
+        - VERSION=0.40.5 # Specify the PocketBase version here
     container_name: pocketbase
     restart: unless-stopped
     command:
