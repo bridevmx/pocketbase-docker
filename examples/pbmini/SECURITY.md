@@ -66,3 +66,67 @@ vinculación OAuth2): ninguno es de routing/archivos; los de 2026 están corregi
 - `publicDir`/`$apis.static` nativos siguen sirviendo symlinks y dotfiles: en `pb_public` usa `c.file` o audita con CI.
 - El rate limit no es atómico ni persistente; para producción usa también el limitador nativo de PocketBase o el proxy.
 - El código de `pb_hooks` tiene acceso total al sistema: revisar dependencias, montar de solo lectura.
+
+---
+# Ronda 2: query strings, base de datos y caché (medido en 0.40.5)
+
+## Query string: comportamiento real de PocketBase/Go
+| Entrada | Resultado medido | Riesgo |
+|---|---|---|
+| `a=1&a=2` | `query().get`/`requestInfo()` => `"1"`, `query()` entero => `["1","2"]` | HPP: distintas APIs ven valores distintos |
+| `a=1;b=2`, `a=%zz`, `a=%E0%A4%A` | Go **descarta el par en silencio** (no hay error) | Diferencial con proxies/WAF que sí separan por `;` |
+| `a=%00x` | pasa con NUL | Truncado en capas C / logs |
+| `__proto__=x`, `__proto__[polluted]=y` | llegan como claves; `o[k]=v` en bucle cambia el **prototipo** del objeto | Prototype pollution al fusionar objetos |
+| 5000 parámetros, 200 KB de query | 200 OK (límite real: 1 MB => 431) | DoS/CPU, claves de caché ilimitadas |
+
+**Control**: pbmini no usa `url.query()`; parsea `rawQuery` con un parser estricto y esquema por ruta
+(`query:{page:{type:"int",min:1,max:100,default:1}}`): máx. 2048 B / 32 pares, rechaza `;`, escapes inválidos,
+control/NUL, duplicados (salvo `multi`), claves no declaradas (salvo `unknownQuery:"ignore"`), segmentos vacíos y nombres
+reservados (`__proto__`, `constructor`...). El resultado es un objeto **sin prototipo** con solo claves declaradas y tipadas.
+El body (`body:{...}`) usa el mismo validador y rechaza campos no declarados (mass assignment), anidados y `__proto__`.
+
+## Base de datos: filtros y reglas (el hallazgo más grave de esta ronda)
+Probado con `$app.findRecordsByFilter` (lo que hace cualquier hook):
+- **Concatenar input en el filtro es inyectable**: `title = 'x' || published = false || title='y'` devolvió el borrador privado **y su campo `secret`**.
+- **Oráculo ciego entre colecciones**: `' || @collection._superusers.email ~ 'su' || title='` cambió el número de resultados (3 vs 0) => se puede deducir contenido de `_superusers` letra a letra.
+- **`sort` también filtra**: `sort=-title,secret` ordenó por un campo `hidden` y `sort=@collection.users.email` fue aceptado (oráculo de orden).
+- **`$app.*` ignora las reglas de colección** (`listRule`/`viewRule`): devolvió registros no publicados que la API oficial oculta.
+- Con parámetros enlazados (`{:t}`) la misma carga útil devolvió 0 resultados. Los campos `hidden` no se serializan al devolver el record entero, pero `record.get("secret")` sí los lee.
+
+**Control**: *consultas preparadas*. Un filtro nunca se construye en runtime; se declara como constante en la ruta y solo se pasan parámetros:
+```js
+app.get("/posts", { auth:"public",
+  queries: { byTitle: { collection:"posts", filter:"title = {:t}", sort:["title","-title"] } },
+  query:   { title:{type:"string",max:100}, sort:{enum:["title","-title"],default:"title"} } },
+  (c) => c.json(c.find("byTitle", { t: c.q.title }, { sort: c.q.sort })));
+```
+`c.find` valida parámetros y paginación, restringe `sort` a la lista declarada y a campos **no hidden**, aplica `listRule`/`viewRule`
+con `canAccessRecord` por registro (regla `null` => solo superuser) y exporta con `publicExport()` (sin hidden ni email oculto).
+Colecciones `_sistema` vetadas. `security/lint.sh` prohíbe `$app/$os/$http/e.*` en el código de rutas.
+
+## Caché: lo que hace PocketBase y lo que añade pbmini
+- PocketBase **no emite `Cache-Control` en ninguna respuesta** (ni en autenticadas); solo `Vary: Origin`. Todo `GET` sin ruta devuelve 200 + `Last-Modified`
+  (fallback `index.html`), cacheable heurísticamente por CDNs: una entrada por cada URL inventada.
+- `Host` se refleja tal cual; `X-Forwarded-*`/`X-Real-IP` se **ignoran** para `realIP()` por defecto (el rate limit no se evade con XFF).
+- `Range` y `If-Modified-Since` funcionan en archivos (206/304).
+
+**Controles de pbmini**
+1. `Cache-Control: no-store` por defecto en todo; solo `200` anónimo de rutas con `cache:{maxAge}` relaja a `public, max-age=N`.
+2. `cache` solo en `GET`, `auth:"public"`, sin `prefix`, `maxAge` 1..86400 (registro falla si no).
+3. **Con `Authorization` o `Cookie` la respuesta es siempre `no-store` y no se sirve ni guarda en caché compartida**; las rutas cacheables ven `c.auth = null` y las reglas se evalúan como anónimo (no se puede personalizar una respuesta cacheada).
+4. Errores, redirects y 4xx/5xx: siempre `no-store`.
+5. `ETag` (SHA-256) + `If-None-Match` => 304 en rutas cacheables.
+6. Caché de servidor opt-in (`cache:{server:true}`): la clave son **solo valores validados y declarados** (nunca URL cruda, `Host` ni cabeceras; el orden y la codificación de la query se normalizan);
+   requiere parámetros/query acotados (int, bool, enum, id, slug, string<=32); se almacena como string JSON en `$app.store()` (los objetos JS no cruzan runtimes del pool);
+   tope `PBMINI_STORE_MAX` (def. 20000): si está lleno se purga lo expirado y **no se desaloja** ni se inserta (una inundación no expulsa entradas legítimas).
+
+## Cobertura de pruebas
+`security/run-mini.sh` => 207 chequeos (query 60+, body 15, DB/ACL 30, caché 35, registro 27, lint, archivos/rutas/XSS/redirect).
+Se verificó por **mutación** (desactivar reglas de colección, protección de credenciales en caché y rechazo de duplicados) que las pruebas fallan (12 FAIL).
+
+## Límites y riesgos residuales (no resueltos / no probados)
+- **Filtrado post-consulta por regla**: `c.find` aplica `listRule` tras `findRecordsByFilter`; una página puede devolver menos de `limit` filas (no filtra por conteo). Reglas muy costosas => N consultas por página (máx. 100).
+- **Rate limit** aproximado y por proceso; con varias réplicas se multiplica. `e.realIP()` solo es fiable si configuras los *trusted proxy headers* de PocketBase tras tu proxy.
+- **CSRF**: PocketBase autentica con cabecera `Authorization` (no cookie); si añades sesiones por cookie necesitas tokens CSRF y `SameSite`.
+- **Sin cubrir**: subida de archivos, SSE/WebSocket, `$http` (SSRF), normalización Unicode (NFC/homógrafos), HTTP request smuggling (depende del proxy), TLS/HSTS (termina en el proxy), y fugas por tiempo (timing).
+- Un hook que llame `$app`/`$os` directamente salta todos estos controles: el lint de CI es obligatorio.
