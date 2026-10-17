@@ -764,6 +764,133 @@ def build(L, ctx, A):
         return a == 200 and b == 200, f"el token de superusuario (sin sid) y el de B (con sid, sin vetar) siguen funcionando: {a}/{b}"
     add("S", cat, "Los tokens no vetados (incluido el de superusuario) no se ven afectados", "200", run=ses_other_tokens)
 
+    # ============================================================ R. Realtime (SSE): conexiones abiertas y revocación
+    import socket
+    cat = "R · Realtime: las conexiones SSE abiertas obedecen a la revocación"
+    class SSE:
+        """Cliente SSE mínimo: conecta, se suscribe con un token y guarda los eventos recibidos."""
+        def __init__(self, p_=None):
+            self.port = p_ or port; self.events = []; self.cid = None; self.closed = False
+            self.s = socket.create_connection(("127.0.0.1", self.port), timeout=30)
+            self.s.sendall(b"GET /api/realtime HTTP/1.1\r\nHost: x\r\nAccept: text/event-stream\r\n\r\n"); self.buf = b""
+            threading.Thread(target=self.run, daemon=True).start()
+            end = time.time() + 5
+            while self.cid is None and time.time() < end: time.sleep(0.05)
+        def run(self):
+            try:
+                while True:
+                    d = self.s.recv(65536)
+                    if not d: break
+                    self.buf += d
+                    while b"\n\n" in self.buf:
+                        ev, self.buf = self.buf.split(b"\n\n", 1); t = ev.decode("utf-8", "replace")
+                        if "PB_CONNECT" in t: self.cid = [l for l in t.split("\n") if l.startswith("id:")][0][3:].strip()
+                        elif "event:" in t: self.events.append(t)
+            except OSError: pass
+            self.closed = True
+        def sub(self, token, subs):
+            h = {"Content-Type": "application/json"}
+            if token: h["Authorization"] = token
+            return raw(self.port, "POST", "/api/realtime", h, json.dumps({"clientId": self.cid, "subscriptions": subs}))
+        def got(self, mark): return len([e for e in self.events if mark in e])
+        def close(self):
+            try: self.s.close()
+            except OSError: pass
+    RT = f"rtlab{os.getpid()}"
+    L.api(port, "POST", "/api/collections", dict(name=RT, type="base", fields=[dict(name="title", type="text")], listRule="", viewRule=""), ctx["TOKSU"])
+    def publish(mark): L.api(port, "POST", f"/api/collections/{RT}/records", dict(title=mark), ctx["TOKSU"]); time.sleep(0.6)
+    def clients(): return json.loads(raw(port, "GET", "/rtclients", SU).body)
+    def mk_session_user():
+        uid, tok = mkuser(plan="free"); em = L.api(port, "GET", f"/api/collections/users/records/{uid}", None, ctx["TOKSU"])["email"]
+        return uid, em, tok
+    live = []
+    def connect(tok):
+        c = SSE(); r = c.sub(tok, [RT]); live.append(c)
+        return c, r.status
+
+    def rt_basic(_):
+        uid, em, t1 = mk_session_user(); t2 = login((em,))
+        (c1, s1), (c2, s2) = connect(t1), connect(t2); publish("rt-uno")
+        cl = [x for x in clients() if x["rid"] == uid]
+        ok = (s1, s2) == (204, 204) and c1.got("rt-uno") == 1 and c2.got("rt-uno") == 1 and len(cl) == 2 and {x["sid"] for x in cl} == {claims(t1)["sid"], claims(t2)["sid"]}
+        return ok, f"suscripciones {s1}/{s2}; ambas reciben el evento; el servidor etiqueta cada conexión con su sid ({len(cl)} conexiones)"
+    add("R", cat, "Conexión SSE autenticada: recibe eventos y queda etiquetada con su sid", "Etiqueta = sid del token con el que se suscribió", run=rt_basic)
+
+    def rt_revoke_one(_):
+        uid, em, t1 = mk_session_user(); t2 = login((em,)); (c1, _a), (c2, _b) = connect(t1), connect(t2); publish("rt-a")
+        raw(port, "POST", "/ses/revoke", {"Authorization": t2, **J}, json.dumps({"id": claims(t1)["sid"]})); time.sleep(0.5)
+        publish("rt-b"); left = [x for x in clients() if x["rid"] == uid]
+        resub = c1.sub(t1, [RT]).status
+        ok = c1.got("rt-b") == 0 and c2.got("rt-b") == 1 and len(left) == 1 and left[0]["sid"] == claims(t2)["sid"] and resub == 401
+        return ok, f"tras revocar la sesión 1: su SSE recibe {c1.got('rt-b')} eventos (0 esperado), la sesión 2 sigue recibiendo ({c2.got('rt-b')}); conexiones del usuario={len(left)}; volver a suscribirse con el token vetado→{resub}"
+    add("R", cat, "Revocar UNA sesión corta solo su conexión SSE (la otra sigue; no se puede re-suscribir)", "0 eventos para la revocada, 1 para la otra, 401 al reintentar", run=rt_revoke_one)
+
+    def rt_logout(_):
+        uid, em, t1 = mk_session_user(); (c1, _a) = connect(t1)
+        r = raw(port, "POST", "/ses/logout", {"Authorization": t1, **J}, "{}"); time.sleep(0.5); publish("rt-lo")
+        return r.status == 200 and c1.got("rt-lo") == 0 and not [x for x in clients() if x["rid"] == uid], f"logout→{r.status}; eventos tras cerrar sesión={c1.got('rt-lo')}"
+    add("R", cat, "ctx.logout() corta la conexión SSE de esa sesión", "0 eventos y sin conexión registrada", run=rt_logout)
+
+    def rt_logout_all(_):
+        uid, em, t1 = mk_session_user(); t2 = login((em,)); (c1, _a), (c2, _b) = connect(t1), connect(t2)
+        r = raw(port, "POST", "/ses/logout-all", {"Authorization": t1, **J}, "{}"); time.sleep(0.5); publish("rt-all")
+        return r.status == 200 and c1.got("rt-all") == 0 and c2.got("rt-all") == 0 and not [x for x in clients() if x["rid"] == uid], f"cerrar todo→{r.status}; eventos {c1.got('rt-all')}/{c2.got('rt-all')}"
+    add("R", cat, "ctx.logoutEverywhere() corta todas las conexiones SSE del usuario", "0 eventos en ambas", run=rt_logout_all)
+
+    def rt_password(_):
+        uid, em, t1 = mk_session_user(); (c1, _a) = connect(t1); publish("rt-p0")
+        L.api(port, "PATCH", f"/api/collections/users/records/{uid}", dict(verified=True), ctx["TOKSU"]); time.sleep(0.4); publish("rt-p1")
+        keep = c1.got("rt-p1")
+        L.api(port, "PATCH", f"/api/collections/users/records/{uid}", dict(password="Other#Pass0rd9", passwordConfirm="Other#Pass0rd9"), ctx["TOKSU"]); time.sleep(0.5); publish("rt-p2")
+        return keep == 1 and c1.got("rt-p2") == 0 and not [x for x in clients() if x["rid"] == uid], f"un cambio sin relación con el token no corta ({keep}=1); cambiar la contraseña sí (eventos tras el cambio: {c1.got('rt-p2')})"
+    add("R", cat, "Cambiar la contraseña corta el SSE (y un cambio inocuo no)", "Sin falsos positivos y sin eventos tras el cambio", run=rt_password)
+
+    def rt_blocked_deleted(_):
+        uid, em, t1 = mk_session_user(); (c1, _a) = connect(t1)
+        L.api(port, "PATCH", f"/api/collections/users/records/{uid}", dict(status="suspended"), ctx["TOKSU"]); time.sleep(0.5); publish("rt-bl")
+        uid2, em2, t2 = mk_session_user(); (c2, _b) = connect(t2)
+        L.api(port, "DELETE", f"/api/collections/users/records/{uid2}", None, ctx["TOKSU"]); time.sleep(0.5); publish("rt-del")
+        return c1.got("rt-bl") == 0 and c2.got("rt-del") == 0 and not [x for x in clients() if x["rid"] in (uid, uid2)], f"bloqueado: {c1.got('rt-bl')} eventos; usuario borrado: {c2.got('rt-del')} eventos"
+    add("R", cat, "Bloquear o borrar al usuario corta su SSE", "0 eventos", run=rt_blocked_deleted)
+
+    def rt_isolation(_):
+        uid, em, t1 = mk_session_user(); (c1, _a) = connect(t1)
+        c_anon = SSE(); sa = c_anon.sub(None, [RT]).status; live.append(c_anon)
+        uidb, emb, tb = mk_session_user(); (cb, _b) = connect(tb); publish("rt-i0")
+        raw(port, "POST", "/ses/logout-all", {"Authorization": t1, **J}, "{}"); time.sleep(0.5); publish("rt-i1")
+        return sa == 204 and c1.got("rt-i1") == 0 and cb.got("rt-i1") == 1 and c_anon.got("rt-i1") == 1, f"anónimo={c_anon.got('rt-i1')} (1), otro usuario={cb.got('rt-i1')} (1), revocado={c1.got('rt-i1')} (0)"
+    add("R", cat, "Las conexiones ajenas y las anónimas no se ven afectadas", "Solo se corta la del usuario revocado", run=rt_isolation)
+
+    def rt_legacy(_):   # token estándar (sin sid), como los emitidos antes de activar el módulo
+        uid, em, t1 = mk_session_user()
+        legacy_tok = json.loads(raw(port, "GET", f"/mintlegacy?id={uid}", SU).body)["token"]
+        (cl_, st_) = connect(legacy_tok); publish("rt-l0"); tag = [x for x in clients() if x["rid"] == uid]
+        raw(port, "POST", "/ses/logout-all", {"Authorization": t1, **J}, "{}"); time.sleep(0.5); publish("rt-l1")
+        return st_ == 204 and len(tag) == 1 and tag[0]["sid"] in (None, "") and cl_.got("rt-l0") == 1 and cl_.got("rt-l1") == 0, f"token sin sid: se etiqueta por usuario; tras cerrar todo recibe {cl_.got('rt-l1')} eventos (0 esperado)"
+    add("R", cat, "Conexión con un token sin sid (anterior a activar el módulo)", "Se corta por usuario al cerrar todo", run=rt_legacy)
+
+    def rt_forged(_):
+        bad = []; uid, em, t1 = mk_session_user(); h_, p_, s_ = t1.split("."); cc = claims(t1)
+        def enc(o): return base64.urlsafe_b64encode(json.dumps(o).encode()).decode().rstrip("=")
+        for label, tk in (("sid ajeno firma original", f"{h_}.{enc({**cc, 'sid': 'AAAAAAAAAAAAAAAA'})}.{s_}"), ("sin firma", f"{h_}.{p_}."), ("exp enorme sin firma", f"{h_}.{enc({**cc, 'exp': 9999999999})}.{s_}")):
+            c = SSE(); r = c.sub(tk, [RT]); live.append(c)
+            if r.status >= 500: bad.append(f"{label}: {r.status}")
+        c_ok = [x for x in clients() if x["rid"] == uid]
+        return not bad, "; ".join(bad) or f"tokens falsificados en la suscripción: PocketBase no los autentica; etiquetarlos no da acceso (clientes del usuario real: {len(c_ok)})"
+    add("R", cat, "Suscripciones con tokens falsificados", "No se autentican como otra persona", run=rt_forged)
+
+    def rt_mass(_):
+        uid, em, t1 = mk_session_user(); cs = [connect(t1)[0] for _ in range(40)]; publish("rt-m0")
+        t0 = time.time(); raw(port, "POST", "/ses/logout-all", {"Authorization": t1, **J}, "{}"); took = time.time() - t0; time.sleep(0.5); publish("rt-m1")
+        return sum(c.got("rt-m1") for c in cs) == 0 and not [x for x in clients() if x["rid"] == uid] and took < 5, f"40 conexiones del mismo usuario cortadas en {took:.2f}s; eventos tras cortar: {sum(c.got('rt-m1') for c in cs)}"
+    add("R", cat, "Corte masivo: 40 conexiones del mismo usuario", "Todas cortadas, sin eventos y en pocos segundos", run=rt_mass)
+
+    def rt_cleanup(_):
+        for c in live: c.close()
+        L.api(port, "DELETE", f"/api/collections/{RT}", None, ctx["TOKSU"])
+        return True, "conexiones de prueba cerradas y colección retirada"
+    add("R", cat, "Limpieza", "-", run=rt_cleanup)
+
     # ============================================================ servidores adicionales: modo "role" y migración de sesiones (legacy)
     import shutil
     EXE, RUN = ctx["exe"], L.RUN
@@ -858,6 +985,31 @@ def build(L, ctx, A):
         finally:
             if pb: pb.stop()
     add("S", cat, "La lista de sesiones vetadas sobrevive a un reinicio", "Tras reiniciar, el token revocado sigue en 401 y el otro en 200", run=deny_restart)
+
+    cat = "R · Realtime: las conexiones SSE abiertas obedecen a la revocación"
+    def rt_expiry(_):
+        pb = None; bad = []
+        try:
+            pb, root = start_extra("rtexp", {"rtclients.js": open(os.path.join(L.SEC, "mini", "pages", "rtclients.js"), encoding="utf-8").read()}, {"pbmini.config.js": sess_cfg(True, "allow")}, 18714)
+            P_ = 18714; su = su_login(P_)
+            L.api(P_, "PATCH", "/api/collections/users", {"authToken": {"duration": 10}}, su)      # tokens de 10 segundos (el mínimo de PocketBase)
+            L.api(P_, "POST", "/api/collections", dict(name="rte", type="base", fields=[dict(name="title", type="text")], listRule="", viewRule=""), su)
+            uid, tok = mkuser(P_, su); life = claims(tok)["exp"] - time.time()
+            if not (0 < life <= 10.5): bad.append(f"duración del token {life:.1f}s (esperado ≈10)")
+            c = SSE(P_); r = c.sub(tok, ["rte"])
+            def pub(m): L.api(P_, "POST", "/api/collections/rte/records", dict(title=m), su); time.sleep(0.6)
+            pub("vivo")
+            first = c.got("vivo")
+            time.sleep(11)                          # el token caduca con la conexión abierta
+            pub("vencido")
+            late = c.got("vencido"); left = json.loads(raw(P_, "GET", "/rtclients", {"Authorization": su}).body)
+            c.close()
+            if r.status != 204 or first != 1: bad.append(f"antes de caducar debe recibir (suscripción {r.status}, eventos {first})")
+            if late != 0 or [x for x in left if x["rid"] == uid]: bad.append(f"tras caducar recibió {late} eventos y la conexión sigue registrada")
+            return not bad, "; ".join(bad) or f"token de {life:.1f}s: recibe mientras vale ({first}) y no recibe nada tras caducar ({late}); la conexión se descarta"
+        finally:
+            if pb: pb.stop()
+    add("R", cat, "Un token que caduca con el SSE abierto deja de recibir eventos", "PocketBase no revisa la caducidad tras suscribirse: pbmini sí (en cada mensaje)", run=rt_expiry)
 
     cat = "A · Acceso: roles, permisos y membresías"
     def blocked_flow(_):
@@ -1014,6 +1166,27 @@ def build(L, ctx, A):
         stray = [f for f in new if not f.replace("\\", "/").startswith(("pb_hooks/pages/", "pb_data/"))]  # pb_data/ lo crea PocketBase al arrancar el comando
         return not bad and not stray, "; ".join(bad[:4]) or f"{len(hostile) * 2 + 12} entradas hostiles rechazadas; archivos nuevos fuera de pages/: {stray or 'ninguno'}"
     add("X", cat, "Rutas y nombres hostiles (traversal, \\, NUL, Unicode, comodines, longitudes...)", "Todas rechazadas; nunca se escribe fuera de pb_hooks/pages", run=gen_hostile)
+
+    def gen_config(_):
+        root = gen_env(); hooks_ = os.path.join(root, "pb_hooks"); cfgp = os.path.join(hooks_, "pbmini.config.js"); bad = []
+        example = open(os.path.join(PBROOT, "pb_hooks", "pbmini.config.example.js"), encoding="utf-8").read()
+        rc, out = pbcmd(root, "pbmini:new", "config")
+        if rc != 0 or not os.path.isfile(cfgp): return False, f"no se creó pbmini.config.js (rc={rc}): {out[-160:]!r}"
+        made = open(cfgp, encoding="utf-8").read()
+        if made != example: bad.append("el archivo creado no es idéntico a la plantilla pbmini.config.example.js")
+        before = os.path.getsize(cfgp)
+        open(cfgp, "a", encoding="utf-8").write("\n// edición del usuario\n")
+        rc2, _o = pbcmd(root, "pbmini:new", "config")
+        if rc2 == 0 or "// edición del usuario" not in open(cfgp, encoding="utf-8").read(): bad.append("sobrescribió o aceptó un archivo existente")
+        for extra in (("config", "x"), ("config", "../x"), ("config", "")):
+            rc3, _o = pbcmd(root, "pbmini:new", *extra)
+            if rc3 == 0 and extra != ("config", ""): bad.append(f"aceptó argumentos extra {extra}")
+        try: t = routes_of(root)   # el proyecto sigue arrancando con la configuración generada (todo apagado)
+        except Exception as e: bad.append("el proyecto no arranca con la configuración generada: " + str(e)[:120])
+        cfg_dir_files = sorted(f for f in os.listdir(hooks_) if f.startswith("pbmini.config"))
+        if cfg_dir_files != ["pbmini.config.example.js", "pbmini.config.js"]: bad.append(f"archivos de configuración inesperados: {cfg_dir_files}")
+        return not bad, "; ".join(bad) or f"pbmini.config.js creado idéntico a la plantilla ({before} bytes, todo apagado); no sobrescribe; rechaza argumentos extra; el proyecto arranca"
+    add("X", cat, "pbmini:new config crea pbmini.config.js desde la plantilla", "Idéntico a pbmini.config.example.js, nunca sobrescribe y todo queda apagado", run=gen_config)
 
     # ============================================================ D. Tipos TypeScript (deriva y comprobación)
     cat = "D · Tipos (types/pbmini.d.ts)"

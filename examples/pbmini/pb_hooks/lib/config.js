@@ -53,9 +53,10 @@ function normalizeAccess(a) {
 }
 function normalizeSessions(s) {
   if (!isObj(s)) fail("sessions debe ser un objeto");
-  only(s, ["enabled", "collection", "legacy"], "sessions");
+  only(s, ["enabled", "collection", "legacy", "realtime"], "sessions");
   if (!s.enabled) return { enabled: false };
-  const out = { enabled: true, collection: s.collection === undefined ? "users" : s.collection, legacy: s.legacy === undefined ? "allow" : s.legacy };
+  const out = { enabled: true, collection: s.collection === undefined ? "users" : s.collection, legacy: s.legacy === undefined ? "allow" : s.legacy, realtime: s.realtime === undefined ? true : s.realtime };
+  if (typeof out.realtime !== "boolean") fail("sessions.realtime debe ser true o false");
   if (typeof out.collection !== "string" || !COLL.test(out.collection) || out.collection.charAt(0) === "_") fail("sessions.collection debe ser una colección de autenticación de usuario (no de sistema)");
   if (out.legacy !== "allow" && out.legacy !== "deny") fail('sessions.legacy debe ser "allow" o "deny"');
   return out;

@@ -343,3 +343,20 @@ un middleware global con lista negra en memoria revoca también la API nativa, y
 **Resultados de la Ronda 9b:** Windows 10 nativo **1154 pasan, 0 fallan, 7 omitidas** (symlinks/FIFO); Linux (Ubuntu en WSL1) **1162 pasan, 0 fallan, 1 omitida** (`tsc`: el `npx` visible es el de Windows).
 Mutaciones nuevas: **13 de 13 detectadas** (3 hubo que reforzar con pruebas: reuso de `sid` ajeno —protegido por dos capas, hay que romper las dos—, lista de sesiones tras `logoutEverywhere` y mayúsculas en la regla de estado).
 Los números de «Resultados de la Ronda 9» más arriba son los de la tanda anterior (antes del rediseño de `sessions`).
+
+---
+# Ronda 9c: realtime (SSE) y revocación
+
+**Medido en PocketBase 0.40.5:** la conexión SSE se autentica en el primer `POST /api/realtime` y no se vuelve a comprobar. Tras revocar la sesión (veto del `sid`), la conexión ya abierta **seguía recibiendo eventos**; un token que caduca con el SSE abierto también.
+`onRealtimeSubscribeRequest` ve la cabecera `Authorization` (vía `e.requestEvent`), `onRealtimeMessageSend` puede descartar un mensaje (sin llamar a `e.next()`) y `client.discard()` retira la conexión del broker;
+`record.original().tokenKey()` permite detectar un cambio de contraseña/correo sin falsos positivos en otros cambios.
+
+**Defensa:** etiquetado de la conexión al suscribirse (sid, usuario, caducidad), corte inmediato al revocar/cerrar todo/bloquear/borrar/cambiar `tokenKey`, y comprobación por mensaje como red de seguridad.
+Opción `sessions.realtime` (por defecto `true`). Pruebas: sección R del laboratorio (14 pruebas: revocar una sesión corta solo esa conexión, `logout`, `logoutEverywhere`, cambio de contraseña, usuario bloqueado/borrado,
+tokens sin `sid`, tokens falsificados, corte masivo de 40 conexiones, caducidad con el SSE abierto, aislamiento de conexiones ajenas y anónimas). 7 de 7 mutaciones detectadas.
+
+**Límites que quedan:** el SDK se reconecta tras el corte y su nuevo `POST /api/realtime` llega vetado (401); una conexión anónima no se vigila; el veto sigue viviendo en un solo proceso.
+
+**Resultados finales de la Ronda 9c** (sessions con `sid` + realtime + `pbmini:new config`): Windows 10 nativo **1171 pasan, 0 fallan, 7 omitidas**; Linux (Ubuntu en WSL1) **1179 pasan, 0 fallan, 1 omitida** (`tsc`).
+Las pruebas de concurrencia S180/S181 mostraron fallos intermitentes de **conexión** (status 0 en 1–2 de 300 peticiones, nunca contenido cruzado) en 2 de 5 corridas completas de Windows tras un reinicio del equipo; pasan siempre en aislamiento. Ahora reintentan solo los errores de conexión (nunca los de contenido).
+`pbmini:new config` crea `pb_hooks/pbmini.config.js` copiando `pbmini.config.example.js` (una sola fuente de verdad), nunca sobrescribe y deja todo apagado.

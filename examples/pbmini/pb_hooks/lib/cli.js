@@ -3,6 +3,7 @@
 //   ./pocketbase pbmini:routes                          tabla de rutas como JSON entre marcadores (la usan el fuzzer guiado y los tipos)
 //   ./pocketbase pbmini:new page|endpoint <ruta> [métodos]   crea pages/<ruta>.js (+ .html si es page); métodos: get,post,put,patch,delete
 //   ./pocketbase pbmini:new schema <nombre>              crea pages/_schemas/<nombre>.js
+//   ./pocketbase pbmini:new config                       crea pb_hooks/pbmini.config.js copiando pbmini.config.example.js (todo apagado; nunca sobrescribe)
 // Ejemplos:  pbmini:new endpoint users/[id]/update post     pbmini:new page blog/[slug]     pbmini:new page docs/   (index de la carpeta)
 const MARK = "PBMINI_ROUTES_JSON";
 const names = () => require(`${__hooks}/lib/names.js`);
@@ -60,6 +61,14 @@ const htmlTemplate = (pl) => "<h1>{{.title}}</h1>\n" + (pl.params.length ? pl.pa
 function create(args) {
   args = (args || []).map(String);
   const kind = args[0];
+  if (kind === "config") { // una sola fuente de verdad: la plantilla comentada pbmini.config.example.js
+    if (args.length !== 1) fail("uso: pbmini:new config (sin argumentos)");
+    const src = `${__hooks}/pbmini.config.example.js`, dst = `${__hooks}/pbmini.config.js`;
+    if (!exists(src)) fail("falta pb_hooks/pbmini.config.example.js (la plantilla)");
+    if (exists(dst)) fail(`ya existe ${dst} (no se sobrescribe nada)`);
+    $os.writeFile(dst, $os.readFile(src), 0o644);
+    console.log("creado " + dst + " (todo apagado: actívalo editando el archivo y reinicia)"); return;
+  }
   const root = `${__hooks}/pages`;
   if (!exists(root)) fail("no existe pb_hooks/pages");
   if (kind === "schema") {
@@ -71,7 +80,7 @@ function create(args) {
     $os.writeFile(file, '/** Esquema reutilizable: úsalo con `body: "' + nm + '"` / `query: "' + nm + '"` */\nmodule.exports = {\n  // campo: { type: "string", max: 100, required: true },\n};\n', 0o644);
     console.log("creado " + file); return;
   }
-  if (kind !== "page" && kind !== "endpoint") fail("uso: pbmini:new page|endpoint <ruta> [métodos] | pbmini:new schema <nombre>");
+  if (kind !== "page" && kind !== "endpoint") fail("uso: pbmini:new page|endpoint <ruta> [métodos] | pbmini:new schema <nombre> | pbmini:new config");
   const pl = plan(args[1] === undefined ? "" : args[1]);
   const methods = (args[2] || "get").split(",").map((x) => x.trim().toLowerCase());
   if (methods.length === 0 || methods.length > 5 || new Set(methods).size !== methods.length || methods.some((m) => METHODS.indexOf(m) < 0)) fail("métodos inválidos (get,post,put,patch,delete)");

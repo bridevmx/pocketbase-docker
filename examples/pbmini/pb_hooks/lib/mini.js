@@ -610,6 +610,12 @@ function register() {
     if (conf.sessions.enabled) {
       routerUse(new Middleware((e) => require(`${__hooks}/lib/sessions.js`).guard(e), -1015, "pbmini_sessions")); // veto global (también /api/*)
       onRecordAuthRequest((e) => { require(`${__hooks}/lib/sessions.js`).issue(e); return e.next(); }, conf.sessions.collection);
+      onRecordAfterUpdateSuccess((e) => { require(`${__hooks}/lib/sessions.js`).onUserUpdated(e); return e.next(); }, conf.sessions.collection);
+      onRecordAfterDeleteSuccess((e) => { require(`${__hooks}/lib/sessions.js`).onUserDeleted(e); return e.next(); }, conf.sessions.collection);
+      if (conf.sessions.realtime) { // PocketBase autentica el SSE una sola vez: se etiqueta al suscribirse y se vigila cada mensaje
+        onRealtimeSubscribeRequest((e) => { require(`${__hooks}/lib/sessions.js`).tagClient(e); return e.next(); });
+        onRealtimeMessageSend((e) => { if (!require(`${__hooks}/lib/sessions.js`).allowMessage(e)) return; return e.next(); });
+      }
       cronAdd("pbmini_sessions_gc", "17 3 * * *", () => require(`${__hooks}/lib/sessions.js`).gc($app));
     }
     $app.onServe().bindFunc((e) => { require(`${__hooks}/lib/mini.js`).onServe(); return e.next(); });

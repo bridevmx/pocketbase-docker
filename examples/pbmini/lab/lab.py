@@ -87,6 +87,7 @@ def build_sandbox(root, pages, symlinks=True, clean=False, public=None, hooks_ex
     shutil.copytree(os.path.join(ROOT, "pb_hooks", "lib"), os.path.join(hooks, "lib"))
     shutil.copytree(os.path.join(ROOT, "pb_hooks", "views"), os.path.join(hooks, "views"))
     shutil.copy(os.path.join(ROOT, "pb_hooks", "main.pb.js"), hooks)
+    shutil.copy(os.path.join(ROOT, "pb_hooks", "pbmini.config.example.js"), hooks)   # plantilla que copia `pbmini:new config` (no se carga: otro nombre)
     if pages: shutil.copytree(pages, os.path.join(hooks, "pages"), symlinks=True)
     if i18n: shutil.copytree(i18n, os.path.join(hooks, "i18n"))
     if fixtures:   # security/mini/{i18n,mails,cron} y pbmini.config.js: módulos opcionales del sandbox principal
@@ -477,7 +478,7 @@ def catalog(ctx):
     add(nid("N"), cat, "REST: expand de relación de sistema", "Sin fuga", "/api/collections/posts/records?expand=owner,_superusers", hasnt=LEAKS + ["su@x.io"])
     add(nid("N"), cat, "REST: crear post sin permiso", "400/403", "/api/collections/posts/records", m="POST", h=J, d='{"title":"x","secret":"y","published":true}', st=(400, 403))
     add(nid("N"), cat, "REST: borrar post ajeno sin sesión", "403/404", "/api/collections/posts/records/$PUBID", m="DELETE", st=(403, 404))
-    add(nid("N"), cat, "REST: usuario A edita registro de B (IDOR)", "403/404", "/api/collections/mine/records/x", m="PATCH", h={**A, **J}, d='{"doc":"pwn"}', st=(403, 404))
+    add(nid("N"), cat, "REST: usuario A edita registro de B (IDOR)", "401/403/404 (el token de A ya fue revocado por la prueba J)", "/api/collections/mine/records/x", m="PATCH", h={**A, **J}, d='{"doc":"pwn"}', st=(401, 403, 404))
     add(nid("N"), cat, "Login por fuerza bruta: contraseña errónea", "400 sin pistas sobre existencia del usuario", "/api/collections/users/auth-with-password", m="POST", h=J, d='{"identity":"a@x.io","password":"mala"}', st=400)
     add(nid("N"), cat, "Enumeración de usuarios: usuario inexistente", "Misma respuesta que contraseña errónea", "/api/collections/users/auth-with-password", m="POST", h=J, d='{"identity":"nadie@x.io","password":"mala"}', st=400)
     add(nid("N"), cat, "Cabecera nosniff en la API", "X-Content-Type-Options: nosniff", "/api/health", st=200, hdr=[r"^x-content-type-options: nosniff"])

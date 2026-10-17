@@ -125,6 +125,6 @@ export interface Config {
   access?: { enabled: boolean; mode: "role" | "membership"; collection?: string; roles: string[]; field?: string; rolesField?: string;
     permissions?: { [role: string]: string[] }; permissionsField?: string; extraPermissions?: string[];
     planField?: string; planOrder?: string[]; expiresField?: string; grace?: number; statusField?: string; blockedStatuses?: string[] };
-  sessions?: { enabled: boolean; collection?: string; legacy?: "allow" | "deny" };
+  sessions?: { enabled: boolean; collection?: string; legacy?: "allow" | "deny"; realtime?: boolean };
   mail?: { maxPerRecipientPerHour?: number; maxPerHour?: number };
 }

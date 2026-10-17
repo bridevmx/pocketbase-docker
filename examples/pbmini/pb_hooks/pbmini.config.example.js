@@ -17,6 +17,6 @@ module.exports = {
     statusField: "status",                                   // "suspended" | "banned" | "blocked" => 403
   },
   // Sesiones revocables con veto GLOBAL (pbmini y /api/*): el token lleva un sid. Crea la colección interna pbmini_sessions; funciona sobre proyectos existentes.
-  sessions: { enabled: false, collection: "users", legacy: "allow" },   // legacy "deny": rechaza tokens emitidos antes de activarlo
+  sessions: { enabled: false, collection: "users", legacy: "allow", realtime: true },   // realtime: corta las conexiones SSE al revocar (PocketBase solo autentica el SSE al suscribirse)   // legacy "deny": rechaza tokens emitidos antes de activarlo
   mail: { maxPerRecipientPerHour: 5, maxPerHour: 200 },
 };

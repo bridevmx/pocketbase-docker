@@ -10,7 +10,7 @@ $app.rootCmd.addCommand(new Command({
 }));
 $app.rootCmd.addCommand(new Command({
   use: "pbmini:new",
-  short: "genera una página, un endpoint o un esquema: pbmini:new page|endpoint <ruta> [métodos] | schema <nombre>",
+  short: "genera una página, un endpoint o un esquema: pbmini:new page|endpoint <ruta> [métodos] | schema <nombre> | config",
   run: (cmd, args) => require(`${__hooks}/lib/cli.js`).create(args),
 }));
 $app.rootCmd.addCommand(new Command({

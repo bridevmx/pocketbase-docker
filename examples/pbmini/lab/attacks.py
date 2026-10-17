@@ -476,11 +476,15 @@ def build(L, ctx):
         def one(job):
             who, path = job
             h = {0: {"Authorization": TOKA}, 1: {"Authorization": TOKB}, 2: {"Cookie": cookie(TOKA)}}[who]
-            r = raw(port, "GET", path, h, timeout=15); return who, path, r
+            r = raw(port, "GET", path, h, timeout=15)
+            for _try in range(2):   # un fallo de CONEXIÓN (status 0, p. ej. ráfaga de 48 conexiones en Windows) se reintenta; un contenido cruzado nunca se reintenta
+                if r.status != 0: break
+                time.sleep(0.3); r = raw(port, "GET", path, h, timeout=15)
+            return who, path, r
         with concurrent.futures.ThreadPoolExecutor(48) as ex: res = list(ex.map(one, jobs))
         bad = []
         for who, path, r in res:
-            if r.status != 200: bad.append(f"{who}{path}→{r.status}"); continue
+            if r.status != 200: bad.append(f"{who}{path}→{r.status}" + (f" ({r.body[:70]})" if r.status == 0 else "")); continue
             if path == "/whoami":
                 want, other = (AID, BID) if who in (0, 2) else (BID, AID)
                 if f'"id":"{want}"' not in r.body or other in r.body: bad.append(f"{who}{path}: identidad cruzada")
@@ -493,10 +497,15 @@ def build(L, ctx):
         bad = []
         def one(i):
             h = [{}, {"Authorization": TOKA}, {"Authorization": TOKB}, {"Cookie": cookie(TOKA)}][i % 4]
-            return raw(port, "GET", f"/pub/{UID}", h, timeout=15)
+            r = raw(port, "GET", f"/pub/{UID}", h, timeout=15)
+            for _try in range(2):
+                if r.status != 0: break
+                time.sleep(0.3); r = raw(port, "GET", f"/pub/{UID}", h, timeout=15)
+            return r
         with concurrent.futures.ThreadPoolExecutor(32) as ex: res = list(ex.map(one, range(200)))
         for r in res:
-            if '"who":null' not in r.body: bad.append("identidad en ruta cacheable")
+            if r.status != 200: bad.append(f"HTTP {r.status}" + (f" ({r.body[:70]})" if r.status == 0 else ""))   # error de red/servidor, no fuga
+            elif '"who":null' not in r.body: bad.append("identidad en ruta cacheable")
             cc = r.header("cache-control") or ""
         return not bad, "; ".join(bad[:3]) or "ruta cacheable: siempre anónima aunque llegue con token/cookie"
     scn(cat, "Caché compartida contaminada con identidad bajo concurrencia (200 peticiones mezcladas)", "La respuesta cacheable nunca incluye datos de usuario", cache_isolation)

@@ -12,7 +12,7 @@ import json, random, re, urllib.parse
 SEED = 20261016
 BAD_OK = (400, 404, 413, 414, 431)
 # rutas cuyo manejador falla A PROPÓSITO con una entrada válida (fixtures del laboratorio)
-INTENTIONAL_5XX = {"GET /boom", "GET /err", "GET /todos/getmut", "GET /mailer", "GET /ses/logout", "GET /pg/nofilter", "GET /posts-badsort", "GET /posts-undeclared-sort", "GET /go"}
+INTENTIONAL_5XX = {"GET /boom", "GET /err", "GET /todos/getmut", "GET /mailer", "GET /ses/logout", "GET /pg/nofilter", "GET /posts-badsort", "GET /posts-undeclared-sort", "GET /go", "GET /mintlegacy"}
 SKIP_VALID = {"GET /rl", "GET /flood/{id}"}   # tienen límites/efectos propios que otras pruebas ya miden
 
 

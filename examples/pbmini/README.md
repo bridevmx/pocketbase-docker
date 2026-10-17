@@ -133,7 +133,7 @@ se ven y se lanzan en el panel (Ajustes → Crons) o con `POST /api/crons/pbmini
 Un solo destinatario con validación estricta, remitente siempre el de Ajustes → Correo, nunca desde un GET, y límites por destinatario/hora y globales (`mail` en `pbmini.config.js`).
 
 ### Módulos opcionales (apagados por defecto): `pb_hooks/pbmini.config.js`
-Sin el archivo nada cambia. Plantilla comentada: `pbmini.config.example.js`. Claves desconocidas o inválidas abortan el arranque.
+Sin el archivo nada cambia. Plantilla comentada: `pbmini.config.example.js`; `./pocketbase pbmini:new config` la copia como `pbmini.config.js` (nunca sobrescribe uno existente). Los cambios requieren reiniciar (en Linux/macOS PocketBase recarga solo al editar `pb_hooks`). Claves desconocidas o inválidas abortan el arranque.
 - **`access`** — roles y membresías. Solo **lee** campos que ya existen en tu colección de usuarios (no crea tablas).
   `mode: "role"` (básico: nombre del campo + lista de roles) o `mode: "membership"` (roles, permisos por rol, permisos extra por usuario, planes con jerarquía `free < pro < team`,
   vencimiento con días de gracia y estado suspendido). Rutas: `access: { role: "editor" }`, `{ permission: "posts.write" }`, `{ plan: "pro" }`, `{ any: [...] }`, `{ all: [...] }` (solo con `auth: "user"`).
@@ -148,7 +148,9 @@ Sin el archivo nada cambia. Plantilla comentada: `pbmini.config.example.js`. Cla
   (la lista vive en memoria, sin consultas por petición, y se guarda en `pbmini_sessions` —solo superusuario— para recargarla al reiniciar). Cada token propio se valida al emitirlo con `findAuthRecordByToken`;
   si PocketBase lo rechazara se entrega el estándar y se avisa en el log (el login nunca se rompe). Se guarda el `sid`, nunca el token. `ctx.sessions()`, `ctx.revokeSession(id)`, `ctx.logout()`.
   Funciona en proyectos existentes; `legacy: "allow"` respeta los tokens emitidos antes de activarlo (sin `sid`: solo `logoutEverywhere()` los mata) y `"deny"` los rechaza.
-  Límites: una conexión realtime (SSE) ya abierta no se corta; el veto vive en un solo proceso; **apagar el módulo deja de aplicar los vetos** (los tokens revocados no vencidos vuelven a valer; usa `logoutEverywhere()` antes si necesitas cerrarlo todo);
+  **Realtime (SSE):** PocketBase autentica la conexión una sola vez, al suscribirse, y no la vuelve a mirar (medido: una sesión revocada seguía recibiendo eventos). Con `realtime: true` (por defecto) cada suscripción
+  se etiqueta con su `sid`/caducidad y se corta al revocar la sesión, cerrar todo, bloquear o borrar al usuario o cambiar su contraseña/correo (cambio de `tokenKey`); además cada mensaje saliente se comprueba contra los vetos y la caducidad del token.
+  Límites: el veto vive en un solo proceso; **apagar el módulo deja de aplicar los vetos** (los tokens revocados no vencidos vuelven a valer; usa `logoutEverywhere()` antes si necesitas cerrarlo todo);
   la firma propia usa `tokenKey + authToken.secret` (comportamiento observado de PocketBase, no documentado).
 - Siempre disponibles (sin módulo): `ctx.logout()` (expira la cookie `pb_auth`) y `ctx.logoutEverywhere()` (cambia la `tokenKey` del usuario, invalida todos sus tokens), solo por POST y con CSRF.
 
@@ -161,6 +163,7 @@ configúralos en el panel y llámalos con el SDK/formularios. Reimplementarlos d
 ./pocketbase pbmini:new page blog/[slug]               # crea pages/blog/[slug]/index.js + index.html (auth: "user" por defecto)
 ./pocketbase pbmini:new endpoint users/[id]/update post
 ./pocketbase pbmini:new schema paging
+./pocketbase pbmini:new config                          # crea pb_hooks/pbmini.config.js desde pbmini.config.example.js (todo apagado; no sobrescribe)
 ./pocketbase pbmini:routes                              # tabla de rutas en JSON (la usa el fuzzer guiado del laboratorio)
 ```
 Nunca sobrescribe, no sale de `pages/` y aplica las mismas reglas de nombres que el cargador. `types/pbmini.d.ts` + `jsconfig.json` dan autocompletado y `checkJs`
