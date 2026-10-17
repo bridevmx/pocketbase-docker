@@ -603,8 +603,13 @@ function register() {
       const fn = eval("(() => require(__hooks + '/lib/cron.js').run(" + JSON.stringify(j.id) + "))");
       cronAdd("pbmini_" + j.id, j.schedule, fn);
     });
+    if (conf.access.enabled && conf.access.statusField) { // cuenta bloqueada: sin inicio de sesión (ni refresh) y, tras bloquearla, sus sesiones se vetan
+      onRecordAuthRequest((e) => { require(`${__hooks}/lib/access.js`).guardAuth(e); return e.next(); }, conf.access.collection);
+      onRecordAfterUpdateSuccess((e) => { require(`${__hooks}/lib/access.js`).onUserSaved(e); return e.next(); }, conf.access.collection);
+    }
     if (conf.sessions.enabled) {
-      onRecordAuthRequest((e) => { require(`${__hooks}/lib/sessions.js`).track(e); return e.next(); }, conf.sessions.collection);
+      routerUse(new Middleware((e) => require(`${__hooks}/lib/sessions.js`).guard(e), -1015, "pbmini_sessions")); // veto global (también /api/*)
+      onRecordAuthRequest((e) => { require(`${__hooks}/lib/sessions.js`).issue(e); return e.next(); }, conf.sessions.collection);
       cronAdd("pbmini_sessions_gc", "17 3 * * *", () => require(`${__hooks}/lib/sessions.js`).gc($app));
     }
     $app.onServe().bindFunc((e) => { require(`${__hooks}/lib/mini.js`).onServe(); return e.next(); });
@@ -797,7 +802,7 @@ function onServe() {
   const warnOnly = $os.getenv("PBMINI_ON_ERROR") === "warn";
   const attempt = (label, fn) => { try { fn(); } catch (err) { console.log(`pbmini: ${label}: ${String(err)}`); if (!warnOnly) $os.exit(1); } };
   const conf = mod("config").load();
-  if (conf.sessions.enabled) attempt("sessions", () => mod("sessions").ensure($app));
+  if (conf.sessions.enabled) attempt("sessions", () => { mod("sessions").ensure($app); console.log(`pbmini: sessions activo; ${mod("sessions").loadDeny($app)} sesiones vetadas recargadas`); });
   if (conf.access.enabled) attempt("access", () => mod("access").validateSchema($app));
 }
 

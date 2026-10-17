@@ -32,7 +32,7 @@ const list = (v) => { // select múltiple (arreglo) o texto "a, b"; solo cadenas
   let a = [];
   if (Array.isArray(v)) a = v; else if (typeof v === "string" && v) a = v.split(",");
   else if (v && typeof v === "object" && typeof v.length === "number") { for (let i = 0; i < v.length; i++) a.push(v[i]); }
-  return a.map((x) => String(x).trim()).filter((x) => NAME.test(x)).slice(0, 64);
+  return a.map((x) => String(x).trim().toLowerCase()).filter((x) => NAME.test(x)).slice(0, 64); // sin distinguir mayúsculas: igual que ~ en las reglas de PocketBase
 };
 function dateMs(v) { // campo date de PocketBase => ms, o NaN
   const s = String(v == null ? "" : v);
@@ -104,4 +104,68 @@ function validateSchema(app) {
   if (col.type !== "auth") fail(`pbmini access: la colección "${c.collection}" no es de autenticación`);
   [c.field, c.rolesField, c.permissionsField, c.planField, c.expiresField, c.statusField].forEach((f) => { if (f && !col.fields.getByName(f)) fail(`pbmini access: la colección "${c.collection}" no tiene el campo "${f}"`); });
 }
-module.exports = { validateSpec, check, can, hasRole, membership, validateSchema };
+// ---- cuenta bloqueada (statusField) ------------------------------------------------------------------------------------------------
+const isBlocked = (rec) => { const c = cfg(); return !!(c.enabled && c.statusField && c.blocked.indexOf(String(rec.get(c.statusField) || "").toLowerCase()) >= 0); };
+// Hook onRecordAuthRequest (login por cualquier método y refresh): una cuenta bloqueada no obtiene token. Equivale a un authRule de PocketBase.
+function guardAuth(e) { if (isBlocked(e.record)) throw new ForbiddenError("This account is blocked."); }
+// Hook onRecordAfterUpdateSuccess: al bloquear una cuenta se vetan todas sus sesiones (rutas de pbmini y API nativa; requiere el módulo sessions).
+function onUserSaved(e) { if (isBlocked(e.record)) { try { require(`${__hooks}/lib/sessions.js`).revokeAll($app, e.record.id); } catch (err) { $app.logger().error("pbmini access: no se pudieron vetar las sesiones", "error", String(err)); } } }
+
+// ---- reglas equivalentes de PocketBase (para la API nativa, que no pasa por `access`) ---------------------------------------------
+// Formas elegidas tras MEDIRLAS contra PocketBase (lab, sección A):
+//   · `@request.auth.<select> ?= "x"` NO funciona (siempre falso). Un select múltiple se guarda como JSON ["a","b"]: se usa `~ '"x"'` (token exacto entre comillas).
+//   · `=` sobre texto distingue mayúsculas; `~` no. Las listas en campos de texto ("a,b") se comparan por token exacto con `:lower` y comas SIN espacios.
+//   · PocketBase solo tiene @yesterday/@now: la gracia de vencimiento se expresa como máximo con 1 día.
+// Devuelve líneas de texto. Es una AYUDA: revísala antes de pegarla. Las reglas nunca deben ser MÁS permisivas que `access` (la prueba del laboratorio lo comprueba).
+function rules(table) {
+  const c = cfg(), out = [], warn = [];
+  if (!c.enabled) return ["# access está apagado (pbmini.config.js): no hay reglas que generar."];
+  const A = (f) => "@request.auth." + f, q = (v) => JSON.stringify(v);
+  const fieldType = (name) => { // tipo real del campo si hay base de datos; si no, suposiciones prudentes
+    try { const f = $app.findCollectionByNameOrId(c.collection).fields.getByName(name); return f ? { type: f.type(), multi: Number(f.maxSelect || 1) > 1 } : null; } catch (_) { return null; }
+  };
+  const textList = (f, token) => { const F = A(f) + ":lower"; return `(${F} = ${q(token)} || ${F} ~ ${q(token + ",%")} || ${F} ~ ${q("%," + token)} || ${F} ~ ${q("%," + token + ",%")})`; };
+  const listHas = (f, token, assume) => { // ¿el campo f contiene el token? según su tipo
+    const t = fieldType(f) || { type: assume, multi: true };
+    if (t.type === "select") return t.multi ? `${A(f)} ~ '${q(token)}'` : `${A(f)}:lower = ${q(token)}`;
+    warn.push(`El campo ${f} es de texto: la regla exige la lista como «a,b» (comas sin espacios); pbmini también acepta espacios, así que la regla es más estricta. Recomendado: un select múltiple.`);
+    return textList(f, token);
+  };
+  const roleCond = (r) => (c.mode === "role" ? listHas(c.field, r, "text") : listHas(c.rolesField, r, "select"));
+  const blockedCond = c.statusField ? c.blocked.map((b) => `${A(c.statusField)}:lower != ${q(b)}`).join(" && ") : "";
+  const base = [`${A("id")} != ""`, `${A("collectionName")} = ${q(c.collection)}`].concat(blockedCond ? [blockedCond] : []);
+  const permCond = (p) => {
+    const parts = c.roles.filter((r) => (c.permissions[r] || []).some((x) => x === "*" || x === p)).map(roleCond);
+    if (c.permissionsField) parts.push(listHas(c.permissionsField, p, "text"));
+    return parts.length ? "(" + parts.join(" || ") + ")" : "false";
+  };
+  const planCond = (p) => {
+    const i = c.planOrder.indexOf(p), ok = "(" + c.planOrder.slice(i).map((x) => `${A(c.planField)} = ${q(x)}`).join(" || ") + ")";
+    if (i === 0) return "true"; // el plan base lo cumple cualquier usuario autenticado (un plan desconocido cuenta como base)
+    if (!c.expiresField) return ok;
+    if (c.grace > 1) warn.push(`grace=${c.grace}: las reglas de PocketBase solo permiten 1 día de gracia (@yesterday); la regla es más estricta que pbmini.`);
+    return `${ok} && ${A(c.expiresField)} > ${c.grace >= 1 ? "@yesterday" : "@now"}`;
+  };
+  const cond = (spec) => {
+    const k = Object.keys(spec)[0], v = spec[k];
+    if (k === "role") return roleCond(v);
+    if (k === "permission") return permCond(v);
+    if (k === "plan") return planCond(v);
+    return "(" + v.map(cond).join(k === "any" ? " || " : " && ") + ")";
+  };
+  const full = (spec) => base.concat([cond(spec)]).filter((x) => x !== "true").join(" && ");
+  out.push(`# pbmini access -> reglas de PocketBase equivalentes (AYUDA: revísalas antes de pegarlas en list/view/create/update/deleteRule de las colecciones que expongan los mismos datos por /api/*).`);
+  out.push(`# Los superusuarios saltan todas las reglas en PocketBase, igual que en pbmini.`, "");
+  if (c.statusField) out.push(`# authRule de la colección "${c.collection}" (opcional: pbmini ya impide el inicio de sesión de cuentas bloqueadas con un hook. AVISO: en PocketBase 0.40.5 cambiar el authRule INVALIDA todos los tokens de la colección: todos tendrían que volver a iniciar sesión):`, c.blocked.map((b) => `${c.statusField}:lower != ${q(b)}`).join(" && "), "");
+  out.push("# Condiciones reutilizables (para reglas de OTRAS colecciones):");
+  c.roles.forEach((r) => out.push(`role ${r}: ${full({ role: r })}`));
+  if (c.mode === "membership") {
+    c.known.forEach((p) => out.push(`permission ${p}: ${full({ permission: p })}`));
+    if (c.planField) c.planOrder.forEach((p) => out.push(`plan ${p}: ${full({ plan: p })}`));
+  }
+  const routes = (table || []).filter((r) => r.access);
+  if (routes.length) { out.push("", "# Rutas de pbmini con `access`:"); routes.forEach((r) => out.push(`${r.key}: ${full(r.access)}`)); }
+  if (warn.length) { out.push("", "# Avisos:"); warn.filter((w, i) => warn.indexOf(w) === i).forEach((w) => out.push("# - " + w)); }
+  return out;
+}
+module.exports = { validateSpec, check, can, hasRole, membership, validateSchema, isBlocked, guardAuth, onUserSaved, rules };

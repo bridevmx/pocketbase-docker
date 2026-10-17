@@ -16,7 +16,7 @@ module.exports = {
     expiresField: "plan_expires", grace: 3,                  // días de gracia; un plan de pago sin fecha vigente cuenta como vencido
     statusField: "status",                                   // "suspended" | "banned" | "blocked" => 403
   },
-  // Sesiones revocables (solo rutas de pbmini). Crea la colección interna pbmini_sessions; funciona sobre proyectos existentes.
+  // Sesiones revocables con veto GLOBAL (pbmini y /api/*): el token lleva un sid. Crea la colección interna pbmini_sessions; funciona sobre proyectos existentes.
   sessions: { enabled: false, collection: "users", legacy: "allow" },   // legacy "deny": rechaza tokens emitidos antes de activarlo
   mail: { maxPerRecipientPerHour: 5, maxPerHour: 200 },
 };

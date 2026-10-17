@@ -85,4 +85,10 @@ function create(args) {
   console.log("creado " + js);
   if (kind === "page") { $os.writeFile(html, htmlTemplate(pl), 0o644); console.log("creado " + html); }
 }
-module.exports = { routes, create };
+// pbmini:access rules  -> reglas de PocketBase equivalentes a la configuración `access` (para proteger también la API nativa)
+function access(args) {
+  if ((args || [])[0] !== "rules") fail("uso: pbmini:access rules");
+  const t = require(`${__hooks}/lib/mini.js`).routeTable();
+  require(`${__hooks}/lib/access.js`).rules(t).forEach((l) => console.log(l));
+}
+module.exports = { routes, create, access };

@@ -1,7 +1,7 @@
 """Ronda 9: pruebas de las funcionalidades nuevas (esquemas reutilizables, paginación/filtros, transacciones, caché con etiquetas,
 layouts y errores, i18n, cron, correo, acceso/membresías, sesiones, generador, tipos). Cada sección declara objetivo + meta.
 `build(L, ctx, A)` devuelve los casos en vivo; `bad_pages()` los archivos que deben impedir el arranque (fail-closed)."""
-import json, os, re, subprocess, urllib.parse, datetime, time, email, email.header, socketserver, threading
+import json, os, re, subprocess, urllib.parse, datetime, time, email, email.header, socketserver, threading, http.client
 
 urllib_quote = lambda v: urllib.parse.quote(v, safe="")
 
@@ -485,11 +485,14 @@ def build(L, ctx, A):
         users["admin"] = mkuser(roles=["admin"], plan="free")
         users["edpro"] = mkuser(roles=["editor"], plan="pro", plan_expires=days(30))
         users["perm"] = mkuser(perms="billing.view", plan="free")
-        users["susp"] = mkuser(roles=["admin"], plan="team", plan_expires=days(30), status="suspended")
+        users["susp"] = mkuser(roles=["admin"], plan="team", plan_expires=days(30))
+        L.api(port, "PATCH", f"/api/collections/users/records/{users['susp'][0]}", dict(status="suspended"), ctx["TOKSU"])   # bloquear DESPUÉS de iniciar sesión: sus sesiones quedan vetadas (401 en todo el sitio)
         users["gold"] = mkuser(plan="gold")
         users["ghost"] = mkuser(roles=["ghost"], plan="free")
         users["permstar"] = mkuser(perms="*, ../x, <script>, posts.write2", plan="free")
         users["permw"] = mkuser(perms="posts.write", plan="free")
+        users["permsp"] = mkuser(perms="a, posts.write", plan="free")      # espacios tras la coma: pbmini lo acepta; la regla generada es más estricta
+        users["permmix"] = mkuser(perms="x,POSTS.WRITE,y", plan="free")     # mayúsculas: se comparan sin distinguirlas (igual que ~ en PocketBase)
         return True, f"{len(users)} usuarios de prueba creados (planes, roles, vencidos, suspendido, valores hostiles)"
     add("A", cat, "Preparación: usuarios con distintos planes, roles y estados", "Usuarios listos", run=setup_users)
 
@@ -506,10 +509,10 @@ def build(L, ctx, A):
                 if r.status != st_ or (code and got_code != code): bad.append(f"{u}→{r.status}/{got_code} (esperado {st_}/{code})")
             return not bad, "; ".join(bad) or f"{len(want)} usuarios con el resultado esperado"
         add("A", cat, label, "Cada usuario recibe exactamente el estado y código esperados", path, run=f)
-    matrix("/acc/editor", {"ed": (200, None), "edpro": (200, None), "free": (403, "forbidden"), "admin": (403, "forbidden"), "pro": (403, "forbidden"), "susp": (403, "account_blocked"), "ghost": (403, "forbidden"), "anon": (401, None), "su": (200, None)}, "Ruta con {role:'editor'}")
-    matrix("/acc/pro", {"free": (402, "plan_required"), "pro": (200, None), "pro_grace": (200, None), "pro_exp": (402, "membership_expired"), "pro_noexp": (402, "membership_expired"), "team": (200, None), "gold": (402, "plan_required"), "susp": (403, "account_blocked"), "ghost": (402, "plan_required"), "anon": (401, None), "su": (200, None)}, "Ruta con {plan:'pro'} (jerarquía, gracia, vencidos, sin fecha, plan desconocido)")
+    matrix("/acc/editor", {"ed": (200, None), "edpro": (200, None), "free": (403, "forbidden"), "admin": (403, "forbidden"), "pro": (403, "forbidden"), "susp": (401, None), "ghost": (403, "forbidden"), "anon": (401, None), "su": (200, None)}, "Ruta con {role:'editor'}")
+    matrix("/acc/pro", {"free": (402, "plan_required"), "pro": (200, None), "pro_grace": (200, None), "pro_exp": (402, "membership_expired"), "pro_noexp": (402, "membership_expired"), "team": (200, None), "gold": (402, "plan_required"), "susp": (401, None), "ghost": (402, "plan_required"), "anon": (401, None), "su": (200, None)}, "Ruta con {plan:'pro'} (jerarquía, gracia, vencidos, sin fecha, plan desconocido)")
     matrix("/acc/team", {"pro": (402, "plan_required"), "team": (200, None), "free": (402, "plan_required"), "pro_exp": (402, "membership_expired")}, "Ruta con {plan:'team'}")
-    matrix("/acc/write", {"ed": (200, None), "admin": (200, None), "free": (403, "forbidden"), "permw": (200, None), "permstar": (403, "forbidden"), "perm": (403, "forbidden"), "susp": (403, "account_blocked")}, "Ruta con {permission:'posts.write'} (rol, comodín *, permiso individual, valores hostiles)")
+    matrix("/acc/write", {"ed": (200, None), "admin": (200, None), "free": (403, "forbidden"), "permw": (200, None), "permsp": (200, None), "permmix": (200, None), "permstar": (403, "forbidden"), "perm": (403, "forbidden"), "susp": (401, None)}, "Ruta con {permission:'posts.write'} (rol, comodín *, permiso individual, valores hostiles)")
     matrix("/acc/billing", {"admin": (200, None), "perm": (200, None), "ed": (403, "forbidden"), "free": (403, "forbidden")}, "Ruta con {permission:'billing.view'} (permiso extra)")
     matrix("/acc/any", {"admin": (200, None), "pro": (200, None), "ed": (402, "plan_required"), "free": (402, "plan_required"), "ghost": (402, "plan_required")}, "Ruta con {any:[role admin, plan pro]}")
     matrix("/acc/all", {"edpro": (200, None), "ed": (402, "plan_required"), "pro": (403, "forbidden"), "admin": (403, "forbidden")}, "Ruta con {all:[role editor, plan pro]}")
@@ -622,99 +625,144 @@ def build(L, ctx, A):
     add("M", cat, "Enviar correo sin sesión", "401", "/mailer", m="POST", h=J, d='{"to":"a@b.io"}', st=401)
     add("M", cat, "Las plantillas de correo no son públicas", "404", "/mails/welcome.html", st=404, hasnt=["Hola"])
 
-    # ============================================================ S. Sesiones revocables
+    # ============================================================ S. Sesiones revocables (sid dentro del token + veto global)
     cat = "S · Sesiones revocables (módulo opcional)"
+    import threading, base64
     def login(email_pw):
         return L.api(port, "POST", "/api/collections/users/auth-with-password", dict(identity=email_pw[0], password="Passw0rd!!"))["token"]
+    def claims(t): p_ = t.split(".")[1]; return json.loads(base64.urlsafe_b64decode(p_ + "=" * (-len(p_) % 4)))
+    def native(t, m="GET", path="/api/collections/users/records"):
+        return raw(port, m, path, {"Authorization": t, **J}, "{}" if m == "POST" else None).status
     ses = {}
     def ses_setup(_):
         email = f"sess{os.getpid()}@lab.test"
         L.api(port, "POST", "/api/collections/users/records", dict(email=email, password="Passw0rd!!", passwordConfirm="Passw0rd!!", verified=True), ctx["TOKSU"])
-        ses["email"] = (email,); ses["t1"] = login(ses["email"]); time.sleep(1.1); ses["t2"] = login(ses["email"])  # mismo segundo => mismo JWT (misma sesión)
+        ses["email"] = (email,); ses["t1"] = login(ses["email"]); ses["t2"] = login(ses["email"])    # SIN pausa: ahora cada inicio de sesión tiene su sid
         lst = json.loads(raw(port, "GET", "/ses/list", {"Authorization": ses["t1"]}).body)["sessions"]
         cur = [s for s in lst if s["current"]]
-        ses["sid1"] = cur[0]["id"] if cur else None; ses["all"] = lst
+        ses["sid1"], ses["sid2"] = claims(ses["t1"])["sid"], claims(ses["t2"])["sid"]; ses["all"] = lst
         blob = json.dumps(lst)
-        return len(lst) == 2 and len(cur) == 1 and cur[0]["ip"] == "127.0.0.1" and ses["t1"] not in blob and "hash" not in blob, f"{len(lst)} sesiones; actual={bool(cur)}; ip={cur[0]['ip'] if cur else '?'}"
-    add("S", cat, "Dos inicios de sesión => dos sesiones; la lista marca la actual y no expone el token ni su hash", "2 sesiones, 1 actual, sin hash", "/ses/list", run=ses_setup)
+        ok = len(lst) == 2 and len(cur) == 1 and cur[0]["id"] == ses["sid1"] and ses["sid1"] != ses["sid2"] and ses["t1"] != ses["t2"] and cur[0]["ip"] == "127.0.0.1" and ses["t1"] not in blob and "hash" not in blob
+        return ok, f"{len(lst)} sesiones en el mismo segundo; tokens distintos={ses['t1'] != ses['t2']}; actual={bool(cur)}; claims={sorted(claims(ses['t1']))}"
+    add("S", cat, "Dos inicios de sesión en el mismo segundo => dos tokens con sid distinto, dos sesiones", "Tokens únicos; la lista marca la actual y no expone token ni hash", "/ses/list", run=ses_setup)
+
+    def ses_native_ok(_):
+        a, b, c = native(ses["t1"]), native(ses["t1"], "POST", "/api/collections/users/auth-refresh"), raw(port, "GET", "/ses/list", {"Cookie": L.cookie(ses["t1"])}).status
+        return (a, b, c) == (200, 200, 200), f"el token con sid vale en la API nativa (listar {a}, refresh {b}) y por cookie en pbmini ({c})"
+    add("S", cat, "PocketBase acepta el token con sid (API nativa, refresh, cookie)", "200 en todos", run=ses_native_ok)
 
     def ses_isolation(_):
         other = json.loads(raw(port, "GET", "/ses/list", {"Authorization": ctx["TOKB"]}).body)["sessions"]
         ids = {s["id"] for s in ses["all"]}
-        rv = raw(port, "POST", "/ses/revoke", {"Authorization": ctx["TOKB"], **J}, json.dumps({"id": sorted(ids)[0]}))
-        still = raw(port, "GET", "/ses/list", {"Authorization": ses["t1"]}).status
-        return not (ids & {s["id"] for s in other}) and json.loads(rv.body)["revoked"] is False and still == 200, f"B ve {len(other)} sesiones suyas; revocar ajena→{rv.body.strip()}; la víctima sigue→{still}"
-    add("S", cat, "Un usuario no ve ni revoca las sesiones de otro", "Aislamiento total", "/ses/revoke", run=ses_isolation)
+        rv = raw(port, "POST", "/ses/revoke", {"Authorization": ctx["TOKB"], **J}, json.dumps({"id": ses["sid1"]}))
+        still = (raw(port, "GET", "/ses/list", {"Authorization": ses["t1"]}).status, native(ses["t1"]))
+        return not (ids & {s["id"] for s in other}) and json.loads(rv.body)["revoked"] is False and still == (200, 200), f"B ve {len(other)} sesiones suyas; revocar una ajena→{rv.body.strip()}; la víctima sigue→{still}"
+    add("S", cat, "Un usuario no ve ni revoca las sesiones de otro", "Aislamiento total (también contra la API nativa)", "/ses/revoke", run=ses_isolation)
 
     def ses_hostile_ids(_):
         bad = []
-        for v in ("x' || 1=1 || '", "../x", "zzzzzzzzzzzzzzz", "%", "a" * 40, "{{7*7}}", " "):
+        for v in ("x' || 1=1 || '", "../x", "zzzzzzzzzzzzzzzz", "%", "a" * 40, "{{7*7}}", " ", "ABCDEFGHIJKLMNOP", ses["sid2"].lower(), ses["sid2"] + "x", ses["sid2"][:-1]):
             r = raw(port, "POST", "/ses/revoke", {"Authorization": ses["t1"], **J}, json.dumps({"id": v}))
             if r.status >= 500 or (r.status == 200 and json.loads(r.body).get("revoked") is not False): bad.append(f"{v[:12]!r}→{r.status} {r.body[:40]}")
-        return not bad and raw(port, "GET", "/ses/list", {"Authorization": ses["t2"]}).status == 200, "; ".join(bad) or "ids hostiles: revoked=false, sin errores ni efectos"
-    add("S", cat, "Identificadores de sesión hostiles", "revoked=false, sin 5xx, sin revocar nada", "/ses/revoke", run=ses_hostile_ids)
+        return not bad and native(ses["t2"]) == 200, "; ".join(bad) or "ids hostiles o casi iguales: revoked=false, sin 5xx, sin efectos"
+    add("S", cat, "Identificadores de sesión hostiles", "revoked=false y la sesión víctima intacta", "/ses/revoke", run=ses_hostile_ids)
 
     def ses_revoke_other(_):
-        other_id = [s["id"] for s in ses["all"] if s["id"] != ses["sid1"]][0]
-        r = raw(port, "POST", "/ses/revoke", {"Authorization": ses["t1"], **J}, json.dumps({"id": other_id}))
-        a = raw(port, "GET", "/ses/list", {"Authorization": ses["t2"]}).status; b = raw(port, "GET", "/ses/list", {"Authorization": ses["t1"]}).status
-        c = raw(port, "GET", "/ses/list", {"Cookie": L.cookie(ses["t2"])}).status
-        native = raw(port, "POST", "/api/collections/users/auth-refresh", {"Authorization": ses["t2"]}).status
-        return json.loads(r.body)["revoked"] is True and a == 401 and c == 401 and b == 200 and native == 200, f"revocada→{a}/cookie {c}; la otra sigue→{b}; API nativa con el token revocado→{native} (límite documentado)"
-    add("S", cat, "Revocar otra sesión propia", "Deja de valer en pbmini (cabecera y cookie); la actual sigue; la API nativa lo acepta hasta que expire (límite documentado)", "/ses/revoke", run=ses_revoke_other)
+        r = raw(port, "POST", "/ses/revoke", {"Authorization": ses["t1"], **J}, json.dumps({"id": ses["sid2"]}))
+        a = raw(port, "GET", "/ses/list", {"Authorization": ses["t2"]}).status; c = raw(port, "GET", "/ses/list", {"Cookie": L.cookie(ses["t2"])}).status
+        n1, n2, n3 = native(ses["t2"]), native(ses["t2"], "POST", "/api/collections/users/auth-refresh"), native(ses["t2"], "GET", "/api/health")
+        b = raw(port, "GET", "/ses/list", {"Authorization": ses["t1"]}).status
+        return json.loads(r.body)["revoked"] is True and (a, c, n1, n2) == (401, 401, 401, 401) and b == 200 and native(ses["t1"]) == 200, f"revocada: pbmini {a}/cookie {c}; API nativa listar {n1}, refresh {n2} (ahora también revoca); la otra sesión sigue {b}"
+    add("S", cat, "Revocar otra sesión propia", "Deja de valer en pbmini (cabecera y cookie) Y en la API nativa; la actual sigue", "/ses/revoke", run=ses_revoke_other)
 
     def ses_refresh(_):
-        time.sleep(1.1)  # dos JWT del mismo usuario emitidos en el mismo segundo son idénticos (misma credencial, misma sesión)
-        r = L.api(port, "POST", "/api/collections/users/auth-refresh", None, ses["t1"]); t_new = r["token"]
-        rl = raw(port, "GET", "/ses/list", {"Authorization": t_new})
-        if rl.status != 200:
-            nat = raw(port, "POST", "/api/collections/users/auth-refresh", {"Authorization": t_new}).status
-            rows = json.loads(raw(port, "GET", "/api/collections/pbmini_sessions/records?perPage=50&sort=created", SU).body)["items"]
-            mine = [(r["id"][:5], r["revoked"], len(r["olds"]), r["hash"][:6]) for r in rows if r["rid"] == rows[-1]["rid"] or True][-6:]
-            import hashlib
-            return False, f"nativo con el token nuevo→{nat}; hash nuevo={hashlib.sha256(t_new.encode()).hexdigest()[:6]}; filas={mine}"
-        if rl.status != 200: return False, f"el token refrescado recibió {rl.status}: {rl.body[:120]} (mismo token que antes: {t_new == ses['t1']})"
-        lst = json.loads(rl.body)["sessions"]
-        same = [s for s in lst if s["id"] == ses["sid1"]]
-        old_ok = raw(port, "GET", "/ses/list", {"Authorization": ses["t1"]}).status
-        time.sleep(1.1)   # segundo refresh con el token YA rotado: debe seguir en la misma sesión (sin sesiones huérfanas)
-        t_new2 = L.api(port, "POST", "/api/collections/users/auth-refresh", None, ses["t1"])["token"]
-        lst2 = json.loads(raw(port, "GET", "/ses/list", {"Authorization": t_new2}).body)["sessions"]
-        same_session = len(lst2) == len(lst) and len([x for x in lst2 if x["id"] == ses["sid1"]]) == 1
-        rv = raw(port, "POST", "/ses/revoke", {"Authorization": t_new, **J}, json.dumps({"id": ses["sid1"]}))
-        after_new = raw(port, "GET", "/ses/list", {"Authorization": t_new}).status; after_old = raw(port, "GET", "/ses/list", {"Authorization": ses["t1"]}).status
-        after_new2 = raw(port, "GET", "/ses/list", {"Authorization": t_new2}).status
-        return len(same) == 1 and same[0]["current"] and old_ok == 200 and same_session and after_new == 401 and after_old == 401 and after_new2 == 401, f"refresh conserva la sesión ({bool(same)}), también al reusar el token anterior ({same_session}); revocarla invalida el nuevo→{after_new}, el anterior→{after_old} y el del segundo refresh→{after_new2}"
-    add("S", cat, "Refrescar el token conserva la sesión; revocarla invalida el token nuevo y los anteriores", "Sin tokens huérfanos que sobrevivan a la revocación", "/ses/list", run=ses_refresh)
+        time.sleep(1.1)
+        t_new = L.api(port, "POST", "/api/collections/users/auth-refresh", None, ses["t1"])["token"]
+        t_new2 = L.api(port, "POST", "/api/collections/users/auth-refresh", None, t_new)["token"]
+        keep = claims(t_new)["sid"] == ses["sid1"] == claims(t_new2)["sid"] and claims(t_new)["exp"] >= claims(ses["t1"])["exp"] and t_new != ses["t1"]
+        lst = json.loads(raw(port, "GET", "/ses/list", {"Authorization": t_new2}).body)["sessions"]
+        one = len([x for x in lst if x["id"] == ses["sid1"]]) == 1 and len(lst) == 1
+        raw(port, "POST", "/ses/revoke", {"Authorization": t_new2, **J}, json.dumps({"id": ses["sid1"]}))
+        dead = [native(t) for t in (ses["t1"], t_new, t_new2)] + [native(t, "POST", "/api/collections/users/auth-refresh") for t in (ses["t1"], t_new, t_new2)] + [raw(port, "GET", "/ses/list", {"Authorization": t}).status for t in (ses["t1"], t_new, t_new2)]
+        return keep and one and dead == [401] * 9, f"refresh conserva el sid ({keep}) y una sola sesión ({one}); revocarla mata los 3 tokens en la API nativa, el refresh y pbmini: {dead}"
+    add("S", cat, "El refresh conserva el sid; revocar la sesión mata todos sus tokens y nadie puede refrescarla", "Sin tokens huérfanos", "/ses/list", run=ses_refresh)
 
     def ses_logout(_):
-        time.sleep(1.1); tk = login(ses["email"])
+        tk = login(ses["email"])
         g = raw(port, "GET", "/ses/logout", {"Authorization": tk}); still = raw(port, "GET", "/ses/list", {"Authorization": tk}).status
-        csrf = raw(port, "POST", "/ses/logout", {"Cookie": L.cookie(tk), "Sec-Fetch-Site": "cross-site", **J}); still2 = raw(port, "GET", "/ses/list", {"Authorization": tk}).status
-        r = raw(port, "POST", "/ses/logout", {"Authorization": tk, **J}, "{}"); after = raw(port, "GET", "/ses/list", {"Authorization": tk}).status
+        csrf = raw(port, "POST", "/ses/logout", {"Cookie": L.cookie(tk), "Sec-Fetch-Site": "cross-site", **J}); still2 = native(tk)
+        r = raw(port, "POST", "/ses/logout", {"Authorization": tk, **J}, "{}"); after = (raw(port, "GET", "/ses/list", {"Authorization": tk}).status, native(tk), native(tk, "POST", "/api/collections/users/auth-refresh"))
         sc = r.header("set-cookie") or ""
-        return (g.status, still, csrf.status, still2, r.status, after) == (500, 200, 401, 200, 200, 401) and "pb_auth=" in sc and "Max-Age=0" in sc, f"GET→{g.status}; CSRF→{csrf.status}; POST→{r.status}, después→{after}; Set-Cookie={sc[:50]!r}"
-    add("S", cat, "ctx.logout(): solo por POST, con CSRF, expira la cookie y revoca la sesión", "GET→500, cross-site→401, POST→200 + Set-Cookie caducada + token inválido", "/ses/logout", run=ses_logout)
+        return (g.status, still, csrf.status, still2, r.status, after) == (500, 200, 401, 200, 200, (401, 401, 401)) and "pb_auth=" in sc and "Max-Age=0" in sc, f"GET→{g.status}; CSRF→{csrf.status}; POST→{r.status}; después pbmini/nativo/refresh→{after}; Set-Cookie={sc[:40]!r}"
+    add("S", cat, "ctx.logout(): solo por POST, con CSRF; expira la cookie y mata el token en TODA la API", "GET→500, cross-site→401, POST→200 + cookie caducada + token muerto también en /api", "/ses/logout", run=ses_logout)
 
     def ses_logout_all(_):
-        time.sleep(1.1); t_a = login(ses["email"]); time.sleep(1.1); t_b = login(ses["email"])
+        t_a, t_b = login(ses["email"]), login(ses["email"])
         r = raw(port, "POST", "/ses/logout-all", {"Authorization": t_a, **J}, "{}")
-        a = raw(port, "GET", "/ses/list", {"Authorization": t_a}).status; b = raw(port, "GET", "/ses/list", {"Authorization": t_b}).status
-        nr = raw(port, "POST", "/api/collections/users/auth-refresh", {"Authorization": t_b}); nat = nr.status
-        na = raw(port, "POST", "/api/collections/users/auth-refresh", {"Authorization": t_a}).status
-        if nat == 200: return False, f"nativo: t_b→200, t_a→{na}, t_a==t_b {t_a == t_b}; resp={nr.body[:100]}; logout-all={r.status} {r.body[:60]}"
-        return r.status == 200 and a == 401 and b == 401 and nat in (400, 401), f"cerrar en todas partes: este→{a}, el otro→{b}, API nativa con el otro→{nat}"
-    add("S", cat, "ctx.logoutEverywhere()", "Invalida TODOS los tokens, también para la API nativa", "/ses/logout-all", run=ses_logout_all)
+        res = [raw(port, "GET", "/ses/list", {"Authorization": t}).status for t in (t_a, t_b)] + [native(t, "POST", "/api/collections/users/auth-refresh") for t in (t_a, t_b)]
+        t_c = login(ses["email"])
+        rl = raw(port, "GET", "/ses/list", {"Authorization": t_c}); lst_c = json.loads(rl.body)["sessions"] if rl.status == 200 else []
+        return r.status == 200 and res == [401, 401, 401, 401] and rl.status == 200 and len(lst_c) == 1 and lst_c[0]["current"], f"cerrar en todas partes: {res}; un inicio de sesión nuevo funciona y la lista solo muestra la sesión nueva ({len(lst_c)})"
+    add("S", cat, "ctx.logoutEverywhere()", "Invalida TODOS los tokens (pbmini y API nativa); se puede volver a entrar", "/ses/logout-all", run=ses_logout_all)
 
     def ses_storage(_):
-        tk = login(ses["email"]) if False else None
         uid, tok = mkuser(plan="free")
         rows = json.loads(raw(port, "GET", "/api/collections/pbmini_sessions/records?perPage=200", SU).body)["items"]
         blob = json.dumps(rows)
         pub = [raw(port, "GET", "/api/collections/pbmini_sessions/records").status, raw(port, "GET", "/api/collections/pbmini_sessions/records", {"Authorization": tok}).status]
-        return tok not in blob and all(len(r["hash"]) == 64 for r in rows) and all(p in (403, 404) for p in pub), f"{len(rows)} filas, ninguna con el token en claro; acceso anónimo/usuario→{pub}"
-    add("S", cat, "El token nunca se guarda; la tabla de sesiones es solo para superusuarios", "Solo sha256; 403/404 para el resto", run=ses_storage)
-    add("S", cat, "La tabla interna no se puede consultar desde pbmini", "El nombre pbmini_* está vetado en consultas/mutaciones (ver arranque)", "/ses/list", h={"Authorization": ctx["TOKB"]}, st=200)
+        keys = set(rows[0]) if rows else set()
+        return tok not in blob and claims(tok)["sid"] in blob and not ({"hash", "olds", "token"} & keys) and all(p in (403, 404) for p in pub), f"{len(rows)} filas con sid, sin token ni hash; campos={sorted(keys - {'collectionId', 'collectionName'})}; anónimo/usuario→{pub}"
+    add("S", cat, "Solo se guarda el sid (nunca el token ni su hash); la tabla es solo para superusuarios", "Sin token en claro; 403/404 para el resto", run=ses_storage)
+
+    def ses_forged(_):
+        bad = []; A_ = users["free"][1] if "free" in users else ctx["TOKA"]; B_ = ctx["TOKB"]
+        h_, p_, s_ = A_.split(".")
+        def enc(o): return base64.urlsafe_b64encode(json.dumps(o).encode()).decode().rstrip("=")
+        ca = claims(A_); cb = claims(B_)
+        forged = {
+            "payload con el sid de otro y firma original": f"{h_}.{enc({**ca, 'sid': cb['sid']})}.{s_}",
+            "sid inventado, firma original": f"{h_}.{enc({**ca, 'sid': 'AAAAAAAAAAAAAAAA'})}.{s_}",
+            "alg none con sid": f"{enc({'alg': 'none', 'typ': 'JWT'})}.{enc(ca)}.",
+            "sin firma": f"{h_}.{p_}.",
+            "firma vacía + sid de otro": f"{h_}.{enc({**ca, 'sid': cb['sid']})}.",
+            "token de B con el id de A": f"{B_.split('.')[0]}.{enc({**cb, 'id': ca['id']})}.{B_.split('.')[2]}",
+        }
+        for label, t in forged.items():
+            for st_, what in ((native(t, "POST", "/api/collections/users/auth-refresh"), "API nativa"), (raw(port, "GET", "/ses/list", {"Authorization": t}).status, "pbmini")):
+                if st_ != 401: bad.append(f"{label} ({what})→{st_}")
+        garbage = ["Bearer", "Bearer ", "a.b.c", "a" * 5000, ".." , "...", "Bearer " + "x." * 400, "eyJ.eyJ.eyJ", "\x01bad", "Bearer  " + A_ + " extra", "bearer\t" + A_]
+        for g in garbage:
+            try: r = raw(port, "GET", "/ses/list", {"Authorization": g})
+            except Exception: continue
+            if r.status >= 500 or r.status == 200 and g != "bearer\t" + A_: bad.append(f"cabecera basura {g[:14]!r}→{r.status}")
+        return not bad, "; ".join(bad[:4]) or f"{len(forged)} tokens falsificados (sid ajeno, alg none, sin firma...) y {len(garbage)} cabeceras basura: 401 o rechazo, nunca 5xx ni acceso"
+    add("S", cat, "Tokens falsificados y cabeceras Authorization hostiles", "401 en pbmini y en la API nativa; sin 5xx", run=ses_forged)
+
+    def ses_no_hijack(_):
+        ta = login(ses["email"]); sa = claims(ta)["sid"]
+        email_b = f"hij{os.getpid()}@lab.test"
+        L.api(port, "POST", "/api/collections/users/records", dict(email=email_b, password="Passw0rd!!", passwordConfirm="Passw0rd!!", verified=True), ctx["TOKSU"])
+        c = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
+        c.request("POST", "/api/collections/users/auth-with-password", json.dumps({"identity": email_b, "password": "Passw0rd!!"}), {"Content-Type": "application/json", "Authorization": ta}); tb = json.loads(c.getresponse().read())["token"]; c.close()
+        sb = claims(tb)["sid"]
+        raw(port, "POST", "/ses/revoke", {"Authorization": tb, **J}, json.dumps({"id": sb}))
+        return sb != sa and native(ta) == 200 and native(tb) == 401, f"login de B con la cabecera Authorization de A: sid propio ({sb != sa}); revocar la de B no toca a A ({native(ta)}), B muerta ({native(tb)})"
+    add("S", cat, "Iniciar sesión con la cabecera Authorization de otra persona no reutiliza su sid", "Cada login obtiene un sid nuevo", "/ses/revoke", run=ses_no_hijack)
+
+    def ses_concurrency(_):
+        t = login(ses["email"]); sid = claims(t)["sid"]; res = []
+        def worker():
+            for _ in range(10): res.append(native(t))
+        raw(port, "POST", "/ses/revoke", {"Authorization": t, **J}, json.dumps({"id": sid}))
+        th = [threading.Thread(target=worker) for _ in range(8)]
+        [x.start() for x in th]; [x.join() for x in th]
+        return set(res) == {401} and len(res) == 80, f"80 peticiones concurrentes tras revocar: {sorted(set(res))}"
+    add("S", cat, "Revocación inmediata bajo concurrencia", "Ninguna petición posterior a la revocación pasa (80/80 en 401)", run=ses_concurrency)
+
+    def ses_other_tokens(_):
+        a = native(ctx["TOKSU"], "GET", "/api/collections/posts/records"); b = raw(port, "GET", "/whoami", {"Authorization": ctx["TOKB"]}).status
+        return a == 200 and b == 200, f"el token de superusuario (sin sid) y el de B (con sid, sin vetar) siguen funcionando: {a}/{b}"
+    add("S", cat, "Los tokens no vetados (incluido el de superusuario) no se ven afectados", "200", run=ses_other_tokens)
 
     # ============================================================ servidores adicionales: modo "role" y migración de sesiones (legacy)
     import shutil
@@ -741,7 +789,7 @@ def build(L, ctx, A):
             pb, root = start_extra("role", {"p.js": 'module.exports = { auth: "user", access: { role: "admin" }, get: (ctx) => ctx.json({ ok: true, admin: ctx.hasRole("admin") }) };'}, {"pbmini.config.js": ROLE_CFG}, 18711)
             su = su_login(18711); users_ = L.api(18711, "GET", "/api/collections/users", None, su)
             L.api(18711, "PATCH", "/api/collections/users", dict(fields=users_["fields"] + [dict(name="role", type="text")]), su)
-            want = {"admin": 200, "editor": 403, "": 403, "ADMIN": 403, "admin,editor": 200, "x" * 100: 403, "<script>": 403, "../admin": 403, " admin ": 200}
+            want = {"admin": 200, "editor": 403, "": 403, "ADMIN": 200, "Admin ": 200, "admin,editor": 200, "x" * 100: 403, "<script>": 403, "../admin": 403, " admin ": 200}
             for i, (val, st_) in enumerate(want.items()):
                 _, tok = mkuser(18711, su, role=val)
                 got = raw(18711, "GET", "/p", {"Authorization": tok}).status
@@ -786,6 +834,99 @@ def build(L, ctx, A):
         finally:
             if pb: pb.stop()
     add("S", cat, "Activar el módulo sobre un proyecto que ya tiene usuarios con sesión", "legacy=allow no cierra sesiones; legacy=deny solo acepta tokens registrados; apagado => ctx.sessions() falla", run=legacy_flow)
+
+    cat = "S · Sesiones revocables (módulo opcional)"
+    def deny_restart(_):
+        pb = None; bad = []
+        try:
+            pages_ = {n: open(os.path.join(L.SEC, "mini", "pages", "ses", n), encoding="utf-8").read() for n in ("list.js", "revoke.js")}
+            pb, root = start_extra("deny", {"ses/" + k: v for k, v in pages_.items()}, {"pbmini.config.js": sess_cfg(True, "allow")}, 18713)
+            su = su_login(18713); uid, t1 = mkuser(18713, su)
+            email_ = L.api(18713, "GET", f"/api/collections/users/records/{uid}", None, su)["email"]
+            t2 = L.api(18713, "POST", "/api/collections/users/auth-with-password", dict(identity=email_, password="Passw0rd!!"))["token"]
+            r = raw(18713, "POST", "/ses/revoke", {"Authorization": t2, **J}, json.dumps({"id": claims(t1)["sid"]}))
+            if json.loads(r.body).get("revoked") is not True: bad.append("no se pudo revocar")
+            st_ = lambda t: (raw(18713, "GET", "/ses/list", {"Authorization": t}).status, raw(18713, "POST", "/api/collections/users/auth-refresh", {"Authorization": t, **J}, "{}").status)
+            before = (st_(t1), st_(t2))
+            pb.stop()
+            pb = L.PB(EXE, root, 18713, env={"PBMINI_PUBLIC_AUDIT": "warn", "PBMINI_DEBUG": "1", "PBMINI_ON_ERROR": "warn"}); pb.serve()
+            if not pb.wait_ready(): raise RuntimeError("no arrancó tras reiniciar")
+            after = (st_(t1), st_(t2))
+            if before != ((401, 401), (200, 200)) or after != before: bad.append(f"antes={before} después={after}")
+            if "1 sesiones vetadas recargadas" not in pb.log(): bad.append("el log no confirma la recarga de vetos")
+            return not bad, "; ".join(bad) or "la sesión revocada sigue vetada tras reiniciar el proceso (pbmini y API nativa); la otra sigue válida; el log confirma la recarga"
+        finally:
+            if pb: pb.stop()
+    add("S", cat, "La lista de sesiones vetadas sobrevive a un reinicio", "Tras reiniciar, el token revocado sigue en 401 y el otro en 200", run=deny_restart)
+
+    cat = "A · Acceso: roles, permisos y membresías"
+    def blocked_flow(_):
+        bad = []
+        uid, t1 = mkuser(plan="free"); email_ = L.api(port, "GET", f"/api/collections/users/records/{uid}", None, ctx["TOKSU"])["email"]
+        t1b = login((email_,))
+        ok0 = (raw(port, "GET", "/acc/open", {"Authorization": t1}).status, native(t1, "POST", "/api/collections/users/auth-refresh"))
+        if ok0 != (200, 200): bad.append(f"antes de bloquear {ok0}")
+        L.api(port, "PATCH", f"/api/collections/users/records/{uid}", dict(status="suspended"), ctx["TOKSU"])
+        dead = [raw(port, "GET", "/acc/open", {"Authorization": t}).status for t in (t1, t1b)] + [native(t, "POST", "/api/collections/users/auth-refresh") for t in (t1, t1b)] + [native(t) for t in (t1, t1b)]
+        if dead != [401] * 6: bad.append(f"sesiones tras bloquear: {dead} (401 esperado)")
+        c = http.client.HTTPConnection("127.0.0.1", port, timeout=10); c.request("POST", "/api/collections/users/auth-with-password", json.dumps({"identity": email_, "password": "Passw0rd!!"}), J); lg = c.getresponse(); lg.read(); c.close()
+        if lg.status != 403: bad.append(f"login de cuenta bloqueada→{lg.status} (403 esperado)")
+        L.api(port, "PATCH", f"/api/collections/users/records/{uid}", dict(status="SUSPENDED"), ctx["TOKSU"])
+        c = http.client.HTTPConnection("127.0.0.1", port, timeout=10); c.request("POST", "/api/collections/users/auth-with-password", json.dumps({"identity": email_, "password": "Passw0rd!!"}), J); lg2 = c.getresponse(); lg2.read(); c.close()
+        if lg2.status != 403: bad.append(f"'SUSPENDED' en mayúsculas→{lg2.status} (403 esperado)")
+        L.api(port, "PATCH", f"/api/collections/users/records/{uid}", dict(status="vip"), ctx["TOKSU"])
+        t3 = login((email_,)); vip = raw(port, "GET", "/acc/open", {"Authorization": t3}).status
+        if vip != 200: bad.append(f"estado no bloqueante 'vip'→{vip}")
+        L.api(port, "PATCH", f"/api/collections/users/records/{uid}", dict(status=""), ctx["TOKSU"])
+        t4 = login((email_,))
+        if raw(port, "GET", "/acc/open", {"Authorization": t4}).status != 200 or native(t1) != 401: bad.append("tras desbloquear: sesión nueva debe valer y las viejas seguir muertas")
+        return not bad, "; ".join(bad) or "bloquear: sesiones muertas en pbmini y API nativa, login 403 (también 'SUSPENDED'), estado 'vip' no bloquea, desbloquear permite volver a entrar (las viejas siguen revocadas)"
+    add("A", cat, "Cuenta bloqueada (status): sesiones vetadas y sin inicio de sesión, en todo el sitio", "Bloquear = fuera de pbmini y de /api/*; desbloquear = puede volver a entrar", "/acc/open", run=blocked_flow)
+
+    def rules_equivalence(_):
+        root = ctx["root"]
+        env = dict(os.environ, PBMINI_PUBLIC_AUDIT="warn")
+        r = subprocess.run([EXE, "pbmini:access", "rules", f"--dir={root}/pb_data_cli", f"--hooksDir={root}/pb_hooks", f"--publicDir={root}/pb_public"], capture_output=True, text=True, env=env, cwd=root, timeout=90, encoding="utf-8", errors="replace")
+        lines = [re.sub(r"^\d{4}/\d\d/\d\d \d\d:\d\d:\d\d ", "", l) for l in (r.stdout or "").split("\n")]   # console.log antepone la hora
+        if r.returncode != 0 or not any(l.startswith("GET /acc/pro:") for l in lines): return False, f"el generador no produjo reglas (rc={r.returncode}): {(r.stderr or r.stdout)[-200:]}"
+        rule_of = {l.split(":", 1)[0]: l.split(":", 1)[1].strip() for l in lines if re.match(r"^GET /acc/\w+:", l)}
+        auth_rule = next((lines[i + 1].strip() for i, l in enumerate(lines) if l.startswith("# authRule")), "")
+        if ":lower" not in auth_rule or not all(":lower" in v for k, v in rule_of.items() if "status" in v): return False, f"la regla de estado debe usar :lower (PocketBase distingue mayúsculas en =): {auth_rule!r}"
+        col = L.api(port, "POST", "/api/collections", dict(name=f"ruletest{os.getpid()}", type="base", fields=[dict(name="title", type="text")], listRule=None), ctx["TOKSU"])
+        L.api(port, "POST", f"/api/collections/{col['name']}/records", dict(title="x"), ctx["TOKSU"])
+        bad, stricter, n = [], [], 0
+        try:
+            for key, rule in rule_of.items():
+                L.api(port, "PATCH", f"/api/collections/{col['name']}", dict(listRule=rule), ctx["TOKSU"])
+                for u in list(users) + ["anon"]:
+                    h = {} if u == "anon" else {"Authorization": users[u][1]}
+                    pb_ok = raw(port, "GET", key.split(" ", 1)[1], h).status == 200
+                    rr = raw(port, "GET", f"/api/collections/{col['name']}/records", h)
+                    rule_ok = rr.status == 200 and json.loads(rr.body).get("totalItems", 0) >= 1
+                    n += 1
+                    if rr.status not in (200, 400, 401, 403): bad.append(f"{key} {u}: HTTP {rr.status} {rr.body[:60]}")
+                    elif rule_ok and not pb_ok: bad.append(f"{key} {u}: la regla es MÁS PERMISIVA que pbmini")
+                    elif pb_ok and not rule_ok: stricter.append(f"{key} {u}")
+            known = {f"{k} pro_grace" for k in rule_of} | {"GET /acc/write permsp", "GET /acc/billing permsp"}   # grace=2 días en el laboratorio: las reglas de PocketBase solo expresan 1
+            unexpected = [s for s in stricter if s not in known]
+            if unexpected: bad.append(f"reglas más estrictas de lo esperado: {unexpected[:4]}")
+            if auth_rule:
+                # OJO: cambiar el authRule de una colección de autenticación INVALIDA todos sus tokens (medido en PocketBase 0.40.5): se prueba en una colección auxiliar
+                aux = L.api(port, "POST", "/api/collections", dict(name=f"authtest{os.getpid()}", type="auth", fields=[dict(name="status", type="text")], authRule=auth_rule), ctx["TOKSU"])
+                try:
+                    res = {}
+                    for st_v in ("", "vip", "suspended", "SUSPENDED", "Banned"):
+                        em = f"au{abs(hash(st_v)) % 10**6}@lab.test"
+                        L.api(port, "POST", f"/api/collections/{aux['name']}/records", dict(email=em, password="Passw0rd!!", passwordConfirm="Passw0rd!!", verified=True, status=st_v), ctx["TOKSU"])
+                        c = http.client.HTTPConnection("127.0.0.1", port, timeout=10); c.request("POST", f"/api/collections/{aux['name']}/auth-with-password", json.dumps({"identity": em, "password": "Passw0rd!!"}), J); rr = c.getresponse(); rr.read(); c.close()
+                        res[st_v] = rr.status
+                    want = {"": 200, "vip": 200, "suspended": 403, "SUSPENDED": 403, "Banned": 403}
+                    if {k: (v == 200) for k, v in res.items()} != {k: (v == 200) for k, v in want.items()}: bad.append(f"authRule generado (estado→login): {res}")
+                finally: L.api(port, "DELETE", f"/api/collections/{aux['name']}", None, ctx["TOKSU"])
+            return not bad, "; ".join(bad[:4]) or f"{len(rule_of)} rutas × {len(users) + 1} usuarios = {n} comparaciones: ninguna regla es más permisiva que pbmini; más estrictas solo pro_grace (grace=2, documentado); authRule generado válido (probado en una colección auxiliar: cambiar el authRule invalida los tokens de su colección)"
+        finally:
+            L.api(port, "DELETE", f"/api/collections/{col['name']}", None, ctx["TOKSU"])
+    add("A", cat, "pbmini:access rules: las reglas generadas equivalen a las rutas con `access`", "Aplicadas como listRule en PocketBase dan el mismo resultado que pbmini (o más estrictas), nunca más permisivas", run=rules_equivalence)
 
     # ============================================================ X. Generador pbmini:new
     cat = "X · Generador de páginas (pbmini:new)"

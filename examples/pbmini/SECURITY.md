@@ -322,3 +322,24 @@ Los comandos de la CLI de PocketBase (`superuser upsert`, `migrate`) cargan los 
   **21 detectadas**; una (T2, la comprobación «no se escribe desde un GET» dentro de `mutate`) no la detecta ninguna prueba porque es la **tercera capa** de la misma defensa (`pages.js` elimina `mutations` de los GET y `route()` aborta si un GET las declara): es defensa en profundidad inalcanzable por HTTP a propósito.
   La mutación S3 (token anterior sin ligar a la sesión) no se detectaba al principio: se reforzó la prueba (segundo refresh con el token ya rotado) y ahora se detecta.
 - `pbmini:routes` usa una carpeta de datos propia (`pb_data_cli`) porque en Linux SQLite bloquea la principal mientras el servidor está abierto.
+
+---
+# Ronda 9b: `sessions` con `sid` en el token y veto global + mejoras de `access`
+
+Se **midió antes de diseñar** (sandbox aparte): los JWT de PocketBase no llevan `iat`/`jti` (dos logins del mismo segundo son idénticos); cambiar la contraseña o el correo invalida los tokens (`verified=false` no);
+`_authOrigins` solo se guarda si el correo de alerta se envía bien (sin SMTP no sirve); `onRecordAuthRequest` permite sustituir `e.token`; PocketBase acepta un token firmado con `tokenKey + authToken.secret` y un claim propio;
+un middleware global con lista negra en memoria revoca también la API nativa, y la lista sobrevive a un reinicio si se persiste.
+
+**Cambios:** `sessions` ya no guarda el hash del token ni consulta la base por petición; cada sesión tiene un `sid` dentro del token; el veto es global (pbmini, `/api/*`, refresh); `access` bloquea el login de cuentas bloqueadas, veta sus sesiones y genera las reglas nativas equivalentes (`pbmini:access rules`).
+
+**Hallazgos del ataque de esta ronda** (corregidos y cubiertos por prueba):
+1. `@request.auth.<select> ?= "x"` **no funciona** en reglas de PocketBase (siempre falso): el generador usa `~ '"x"'`. Lo encontró la prueba de equivalencia reglas↔`access`.
+2. `~` no distingue mayúsculas y `=` sí: las listas de texto se comparan con `:lower` y por token exacto; el estado bloqueado usa `:lower`; pbmini compara roles/permisos sin distinguir mayúsculas para que ambos coincidan.
+3. Una regla `perms ~ "posts.write"` concedía el permiso a `posts.write2` (subcadena): sustituida por coincidencia de token exacto.
+4. Con `sessions`, un usuario bloqueado ya no tiene token válido (401, no 403 `account_blocked`): la comprobación de bloqueo de `access` queda como segunda capa.
+
+5. **Cambiar el `authRule` de una colección de autenticación invalida todos sus tokens** (medido en PocketBase 0.40.5; no está documentado). El generador lo avisa y la prueba aplica el `authRule` en una colección auxiliar, no en `users`.
+
+**Resultados de la Ronda 9b:** Windows 10 nativo **1154 pasan, 0 fallan, 7 omitidas** (symlinks/FIFO); Linux (Ubuntu en WSL1) **1162 pasan, 0 fallan, 1 omitida** (`tsc`: el `npx` visible es el de Windows).
+Mutaciones nuevas: **13 de 13 detectadas** (3 hubo que reforzar con pruebas: reuso de `sid` ajeno —protegido por dos capas, hay que romper las dos—, lista de sesiones tras `logoutEverywhere` y mayúsculas en la regla de estado).
+Los números de «Resultados de la Ronda 9» más arriba son los de la tanda anterior (antes del rediseño de `sessions`).

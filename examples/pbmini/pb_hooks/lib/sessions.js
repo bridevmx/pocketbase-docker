@@ -1,102 +1,155 @@
-// Módulo opcional de sesiones revocables (apagado por defecto; ver pbmini.config.js). Alcance: rutas de pbmini y cookie `pb_auth`.
-//  - Funciona sobre un proyecto ya existente: al activarlo crea (de forma idempotente) la colección `pbmini_sessions` (reglas null = solo superuser)
-//    y no toca tu colección de usuarios. Apagarlo devuelve el comportamiento anterior; no borra datos.
-//  - Guarda sha256(token), nunca el token. El registro lo hace el hook nativo onRecordAuthRequest (contraseña, OTP, OAuth2 y refresh).
-//  - Límite explícito: la API nativa /api/* sigue aceptando un token revocado hasta que expire. Para invalidar TODOS los tokens: ctx.logoutEverywhere().
-//  - legacy: "allow" (por defecto) respeta los tokens emitidos antes de activar el módulo (no cierra la sesión a todo el mundo); "deny" los rechaza.
+// Módulo opcional de sesiones revocables (apagado por defecto; ver pbmini.config.js).
+//  - Al iniciar sesión (contraseña, OTP, OAuth2...) y al refrescar, el token que emite PocketBase se sustituye por OTRO IGUAL (mismos claims, misma caducidad,
+//    firmado con la misma clave) que lleva además un identificador de sesión `sid`. PocketBase y su API nativa lo aceptan; un `refresh` conserva el `sid`.
+//  - Revocar = vetar un `sid`. Un middleware GLOBAL (también /api/* y /_/) rechaza con 401 los tokens con `sid` vetado; la lista vive en memoria
+//    (sin consultas por petición) y se persiste en `pbmini_sessions` (se recarga al servir). Un `sid` vetado no se puede refrescar: el refresh ya llega bloqueado.
+//  - Funciona en proyectos existentes: crea la colección `pbmini_sessions` (solo superusuario). Los tokens emitidos antes de activar el módulo no llevan `sid`:
+//    `legacy: "allow"` (por defecto) los respeta hasta que caduquen o se llame a logoutEverywhere(); `legacy: "deny"` los rechaza (los usuarios vuelven a iniciar sesión).
+//  - Se guarda el `sid`, nunca el token. Cada token propio se valida en el momento de emitirlo con findAuthRecordByToken; si PocketBase lo rechazara
+//    (p. ej. un cambio futuro de su esquema de firma) se entrega el token estándar y se avisa en el log: el inicio de sesión nunca se rompe.
+//  - Límites: una conexión realtime (SSE) ya abierta no se corta; el veto vive en un solo proceso (PocketBase es un solo nodo); apagar el módulo deja de aplicar los vetos
+//    (los tokens revocados no vencidos vuelven a valer): usa logoutEverywhere() si necesitas cerrar todo.
 const cfg = () => require(`${__hooks}/lib/config.js`).load().sessions;
 const COLL = "pbmini_sessions";
+const DENY = "pbmini:deny:";
+const SID = /^[A-Za-z0-9]{16}$/;
+const JWT = /^[A-Za-z0-9_-]{1,2048}\.[A-Za-z0-9_-]{1,2048}\.[A-Za-z0-9_-]{0,2048}$/;
 const CTRL = /[\x00-\x1f\x7f]/g;
-const hashOf = (t) => $security.sha256(t);
 const dt = (ms) => new Date(ms).toISOString().replace("T", " ");
 
+function claimsOf(token) { // claims SIN verificar (solo para decidir veto/identidad; la firma la comprueba PocketBase)
+  if (typeof token !== "string" || !JWT.test(token)) return null;
+  try { const c = $security.parseUnverifiedJWT(token); return c && typeof c === "object" ? c : null; } catch (_) { return null; }
+}
+let _collId = null; // por runtime
+function collectionId() { if (_collId === null) { try { _collId = $app.findCollectionByNameOrId(cfg().collection).id; } catch (_) { _collId = ""; } } return _collId; }
+
 function ensure(app) { // idempotente: crea la colección solo si no existe
-  try { app.findCollectionByNameOrId(COLL); return; } catch (_) { /* no existe */ }
-  const c = new Collection({
+  try {
+    const c = app.findCollectionByNameOrId(COLL);
+    if (!c.fields.getByName("sid")) throw new Error(`la colección ${COLL} tiene el esquema antiguo (sin "sid"): elimínala desde el panel y reinicia`);
+    return;
+  } catch (err) { if (String(err).indexOf("esquema antiguo") >= 0) throw err; }
+  app.save(new Collection({
     type: "base", name: COLL, listRule: null, viewRule: null, createRule: null, updateRule: null, deleteRule: null,
     fields: [
-      { name: "rid", type: "text", required: true, max: 30 }, { name: "coll", type: "text", max: 64 }, { name: "hash", type: "text", required: true, max: 64 },
+      { name: "sid", type: "text", required: true, max: 16 }, { name: "rid", type: "text", required: true, max: 30 }, { name: "coll", type: "text", max: 64 },
       { name: "ip", type: "text", max: 64 }, { name: "ua", type: "text", max: 200 }, { name: "expires", type: "date" }, { name: "seen", type: "date" },
-      { name: "revoked", type: "bool" }, { name: "olds", type: "text", max: 2000 }, { name: "created", type: "autodate", onCreate: true },
+      { name: "revoked", type: "bool" }, { name: "created", type: "autodate", onCreate: true },
     ],
-    indexes: [`CREATE UNIQUE INDEX idx_${COLL}_hash ON ${COLL} (hash)`, `CREATE INDEX idx_${COLL}_rid ON ${COLL} (rid)`],
-  });
-  app.save(c);
+    indexes: [`CREATE UNIQUE INDEX idx_${COLL}_sid ON ${COLL} (sid)`, `CREATE INDEX idx_${COLL}_rid ON ${COLL} (rid)`],
+  }));
+}
+const expMs = (row) => new Date(String(row.get("expires")).replace(" ", "T")).getTime() || Date.now() + 86400000;
+// Al servir: recarga en memoria los sid revocados que aún no han vencido.
+function loadDeny(app) {
+  if (!cfg().enabled) return 0;
+  const rows = app.findRecordsByFilter(COLL, "revoked = true && expires > {:n}", "", 100000, 0, { n: dt(Date.now()) });
+  rows.forEach((r) => app.store().set(DENY + r.getString("sid"), String(expMs(r))));
+  return rows.length;
 }
 
-// Hook nativo: registra (o rota, en un refresh) la sesión asociada al token recién emitido.
-function track(e) {
+// ¿Este token está vetado? (memoria; sin consultas a la base)
+function denied(token) {
   const c = cfg();
-  if (!c.enabled || e.record.collection().name !== c.collection || !e.token) return;
-  try {
-    const re = e.requestEvent || e; // el evento de autenticación envuelve al RequestEvent
-    const claims = $security.parseUnverifiedJWT(e.token), exp = Number(claims.exp) * 1000;
-    const old = String(re.request.header.get("Authorization") || "").replace(/^Bearer\s+/i, "").trim();
-    const now = Date.now(), fields = { hash: hashOf(e.token), expires: dt(isFinite(exp) ? exp : now + 14 * 86400000), seen: dt(now) };
-    let row = null;
-    if (old) { try { row = $app.findFirstRecordByFilter(COLL, "(hash = {:h} || olds ~ {:h}) && rid = {:r}", { h: hashOf(old), r: e.record.id }); } catch (_) { row = null; } }
-    if ($os.getenv("PBMINI_DEBUG") === "1") console.log("pbmini sessions track:", e.record.id, "old=" + (old ? old.slice(-8) : "-"), "found=" + !!row);
-    if (!row) {
-      row = new Record($app.findCollectionByNameOrId(COLL));
-      row.set("rid", e.record.id); row.set("coll", c.collection); row.set("revoked", false);
-      row.set("ip", String(re.realIP() || "").replace(CTRL, "").slice(0, 64));
-      row.set("ua", String(re.request.header.get("User-Agent") || "").replace(CTRL, " ").slice(0, 200));
-    }
-    if (old) { // refresh: el token anterior sigue asociado a la misma sesión (si se revoca, se revocan todos)
-      const prev = row.getString("hash");
-      if (prev && prev !== fields.hash) row.set("olds", (row.getString("olds") + " " + prev).trim().split(" ").slice(-20).join(" "));
-    }
-    Object.keys(fields).forEach((k) => row.set(k, fields[k]));
-    $app.save(row);
-  } catch (err) { $app.logger().error("pbmini sessions: no se pudo registrar la sesión", "error", String(err)); } // nunca rompe el inicio de sesión
+  if (!c.enabled) return false;
+  const cl = claimsOf(token);
+  if (!cl || cl.type !== "auth") return false;
+  if (typeof cl.sid === "string" && SID.test(cl.sid)) {
+    const v = $app.store().get(DENY + cl.sid);
+    if (!v) return false;
+    if (Number(v) < Date.now()) { $app.store().remove(DENY + cl.sid); return false; } // vencido: el token ya no vale por sí solo
+    return true;
+  }
+  return c.legacy === "deny" && cl.collectionId === collectionId(); // sin sid: solo los de la colección configurada
 }
-
-// true => el token sigue siendo válido para pbmini. Se llama desde cookieAuth con el token ya validado por PocketBase.
+const bearer = (e) => String(e.request.header.get("Authorization") || "").replace(/^Bearer\s+/i, "").trim();
+// Middleware GLOBAL (-1015): la cabecera Authorization de CUALQUIER ruta, nativa incluida.
+function guard(e) {
+  const t = bearer(e);
+  if (t && !verify(e, t)) return e.json(401, { status: 401, message: "The request requires valid record authorization token.", data: {} });
+  return e.next();
+}
+// Desde cookieAuth (token de la cookie `pb_auth` ya validado por PocketBase): false => anónimo. Fija el sid de la petición.
 function verify(e, token) {
-  const c = cfg();
-  if (!c.enabled || !e.auth || e.hasSuperuserAuth() || e.auth.collection().name !== c.collection) return true;
-  const h = hashOf(token); e.set("pbmini_token_hash", h);
-  let row = null;
-  try { row = $app.findFirstRecordByFilter(COLL, "hash = {:h} || olds ~ {:h}", { h }); } catch (_) { row = null; }
-  if (!row) return c.legacy === "allow";
-  if (row.getBool("revoked") || row.getString("rid") !== e.auth.id) return false;
-  try { if (Date.now() - new Date(String(row.get("seen")).replace(" ", "T")).getTime() > 300000) { row.set("seen", dt(Date.now())); $app.save(row); } } catch (_) { /* es solo informativo */ }
+  if (!cfg().enabled) return true;
+  if (denied(token)) return false;
+  const cl = claimsOf(token);
+  if (cl && typeof cl.sid === "string" && SID.test(cl.sid)) e.set("pbmini_sid", cl.sid);
   return true;
 }
 
-function requireWrite(route) { if (route.method === "GET") throw new Error("pbmini: esta operación no se permite en GET (CSRF)"); }
-function list(e) {
-  if (!cfg().enabled) throw new Error("pbmini: sessions está apagado (pbmini.config.js)");
-  if (!e.auth) return [];
-  const cur = e.get("pbmini_token_hash");
-  return $app.findRecordsByFilter(COLL, "rid = {:r} && revoked = false && expires > {:n}", "-created", 50, 0, { r: e.auth.id, n: dt(Date.now()) })
-    .map((r) => ({ id: r.id, ip: r.getString("ip"), userAgent: r.getString("ua"), created: String(r.get("created")), lastSeen: String(r.get("seen")), current: r.getString("hash") === cur }));
+// Hook nativo onRecordAuthRequest: sustituye el token por uno con `sid` y registra/renueva la sesión.
+function issue(e) {
+  const c = cfg();
+  if (!c.enabled || e.record.collection().name !== c.collection || !e.token) return;
+  try {
+    const re = e.requestEvent || e, claims = claimsOf(e.token);
+    if (!claims) throw new Error("token estándar ilegible");
+    const col = e.record.collection(), now = Date.now(), exp = Number(claims.exp) * 1000;
+    let sid = null, row = null;
+    if (!e.authMethod) { // refresh: se conserva el sid del token con el que se refresca, si es de esta misma persona
+      const oc = claimsOf(bearer(re));
+      if (oc && SID.test(oc.sid || "") && oc.id === e.record.id) { try { row = $app.findFirstRecordByFilter(COLL, "sid = {:s} && rid = {:r} && revoked = false", { s: oc.sid, r: e.record.id }); sid = oc.sid; } catch (_) { row = null; } }
+    }
+    if (!sid) sid = $security.randomString(16);
+    const token = $security.createJWT(Object.assign({}, claims, { sid }), e.record.tokenKey() + col.authToken.secret, Math.max(1, Math.floor((exp - now) / 1000)));
+    const back = $app.findAuthRecordByToken(token, "auth"); // autoverificación: PocketBase debe aceptar el token propio
+    if (!back || back.id !== e.record.id) throw new Error("PocketBase rechazó el token propio");
+    if (!row) {
+      row = new Record($app.findCollectionByNameOrId(COLL));
+      row.set("sid", sid); row.set("rid", e.record.id); row.set("coll", c.collection); row.set("revoked", false);
+      row.set("ip", String(re.realIP() || "").replace(CTRL, "").slice(0, 64));
+      row.set("ua", String(re.request.header.get("User-Agent") || "").replace(CTRL, " ").slice(0, 200));
+    }
+    row.set("expires", dt(isFinite(exp) ? exp : now + 14 * 86400000)); row.set("seen", dt(now));
+    $app.save(row);
+    e.token = token; // solo si todo lo anterior salió bien
+  } catch (err) { $app.logger().error("pbmini sessions: se entrega el token estándar de PocketBase (sin sid)", "error", String(err)); } // nunca rompe el inicio de sesión
 }
-function revoke(e, route, id) { // solo sesiones propias; ajenas o inexistentes => false sin distinguirlas
-  requireWrite(route);
-  if (!cfg().enabled) throw new Error("pbmini: sessions está apagado (pbmini.config.js)");
-  if (!e.auth || typeof id !== "string" || !/^[a-z0-9]{15}$/.test(id)) return false;
-  let row; try { row = $app.findRecordById(COLL, id); } catch (_) { return false; }
-  if (row.getString("rid") !== e.auth.id) return false;
-  row.set("revoked", true); $app.save(row); return true;
+
+function requireWrite(route) { if (route.method === "GET") throw new Error("pbmini: esta operación no se permite en GET (CSRF)"); }
+const on = () => { if (!cfg().enabled) throw new Error("pbmini: sessions está apagado (pbmini.config.js)"); };
+function list(e) {
+  on();
+  if (!e.auth) return [];
+  const cur = e.get("pbmini_sid");
+  return $app.findRecordsByFilter(COLL, "rid = {:r} && revoked = false && expires > {:n}", "-created", 50, 0, { r: e.auth.id, n: dt(Date.now()) })
+    .map((r) => ({ id: r.getString("sid"), ip: r.getString("ip"), userAgent: r.getString("ua"), created: String(r.get("created")), lastSeen: String(r.get("seen")), current: r.getString("sid") === cur }));
+}
+function revokeRow(app, row) { row.set("revoked", true); app.save(row); app.store().set(DENY + row.getString("sid"), String(expMs(row))); }
+function revoke(e, route, sid) { // solo sesiones propias; ajenas o inexistentes => false sin distinguirlas
+  requireWrite(route); on();
+  if (!e.auth || typeof sid !== "string" || !SID.test(sid)) return false;
+  let row; try { row = $app.findFirstRecordByFilter(COLL, "sid = {:s} && rid = {:r}", { s: sid, r: e.auth.id }); } catch (_) { return false; }
+  revokeRow($app, row); return true;
+}
+// Todas las sesiones activas de un usuario (p. ej. al bloquearlo): las veta en memoria y en la base.
+function revokeAll(app, rid) {
+  if (!cfg().enabled) return 0;
+  const rows = app.findRecordsByFilter(COLL, "rid = {:r} && revoked = false && expires > {:n}", "", 1000, 0, { r: rid, n: dt(Date.now()) });
+  rows.forEach((r) => revokeRow(app, r));
+  return rows.length;
 }
 const clearCookie = (e) => e.response.header().set("Set-Cookie", "pb_auth=; Path=/; Max-Age=0; SameSite=Lax");
-function logout(e, route) { // cierra la sesión actual: marca la fila (si el módulo está activo) y expira la cookie
+function logout(e, route) { // cierra la sesión actual: veta el sid (si el módulo está activo) y expira la cookie
   requireWrite(route);
-  const h = e.get("pbmini_token_hash");
-  if (cfg().enabled && h) { try { const row = $app.findFirstRecordByFilter(COLL, "hash = {:h} || olds ~ {:h}", { h }); row.set("revoked", true); $app.save(row); } catch (_) { /* sin fila */ } }
+  const sid = e.get("pbmini_sid");
+  if (cfg().enabled && sid) revoke(e, route, sid);
   clearCookie(e);
 }
-function logoutEverywhere(e, route) { // invalida TODOS los tokens del usuario (nativo: cambia su tokenKey) y marca sus sesiones
+function logoutEverywhere(e, route) { // invalida TODOS los tokens del usuario (nativo: cambia su tokenKey) y veta sus sesiones
   requireWrite(route);
   if (!e.auth || e.hasSuperuserAuth()) throw new Error("pbmini: logoutEverywhere requiere un usuario autenticado");
   const rec = e.auth;
   rec.refreshTokenKey(); $app.save(rec);
-  if (cfg().enabled) { try { $app.db().newQuery(`UPDATE ${COLL} SET revoked = 1 WHERE rid = {:r}`).bind({ r: rec.id }).execute(); } catch (_) { /* sin tabla */ } }
+  revokeAll($app, rec.id);
   clearCookie(e);
 }
-function gc(app) { // filas vencidas (el token ya no sirve) o revocadas hace más de 30 días
+function gc(app) { // sesiones vencidas (su token ya no vale) y vetos en memoria caducados
   if (!cfg().enabled) return;
-  app.db().newQuery(`DELETE FROM ${COLL} WHERE expires < {:n}`).bind({ n: dt(Date.now() - 30 * 86400000) }).execute();
+  app.db().newQuery(`DELETE FROM ${COLL} WHERE expires < {:n}`).bind({ n: dt(Date.now()) }).execute();
+  const st = app.store(), ks = st.keys(), now = Date.now();
+  for (let i = 0; i < ks.length; i++) if (ks[i].indexOf(DENY) === 0 && Number(st.get(ks[i])) < now) st.remove(ks[i]);
 }
-module.exports = { ensure, track, verify, list, revoke, logout, logoutEverywhere, gc, COLL };
+module.exports = { ensure, loadDeny, issue, guard, verify, denied, list, revoke, revokeAll, logout, logoutEverywhere, gc, COLL };

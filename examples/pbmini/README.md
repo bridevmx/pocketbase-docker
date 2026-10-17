@@ -139,9 +139,17 @@ Sin el archivo nada cambia. Plantilla comentada: `pbmini.config.example.js`. Cla
   vencimiento con días de gracia y estado suspendido). Rutas: `access: { role: "editor" }`, `{ permission: "posts.write" }`, `{ plan: "pro" }`, `{ any: [...] }`, `{ all: [...] }` (solo con `auth: "user"`).
   Fail-closed: campo ausente, valor desconocido o fecha inválida = sin permiso / plan base; un plan de pago sin fecha vigente cuenta como vencido (402 `membership_expired`).
   Protege **solo rutas de pbmini**: espeja las condiciones en las reglas de la colección (`@request.auth.plan = "pro"`) para la API nativa.
-- **`sessions`** — sesiones revocables sobre los tokens de PocketBase (`ctx.sessions()`, `ctx.revokeSession(id)`). Funciona en proyectos existentes: crea la colección interna
-  `pbmini_sessions` (solo superusuario), guarda `sha256(token)`, y `legacy: "allow"` respeta los tokens emitidos antes de activarlo. Límites: la API nativa sigue aceptando un token
-  revocado hasta que expire (para invalidarlo todo: `ctx.logoutEverywhere()`); dos JWT del mismo usuario emitidos en el mismo segundo son idénticos y comparten sesión; **apagar el módulo vuelve a aceptar los tokens revocados que no hayan expirado**.
+  **Cuenta bloqueada** (`statusField`): no obtiene token por ningún método ni al refrescar (403) y, al bloquearla, sus sesiones se vetan (con `sessions`: fuera de pbmini **y** de `/api/*`).
+  **Reglas para la API nativa:** `./pocketbase pbmini:access rules` imprime las reglas de PocketBase equivalentes a tu configuración y a cada ruta con `access` (con la hora delante de cada línea: es el formato de `console.log`).
+  Las formas están medidas contra PocketBase: un select múltiple se compara con `~ '"editor"'` (`?=` no funciona sobre `@request.auth`), el texto con `:lower` y listas «a,b» sin espacios, y la gracia de vencimiento solo puede ser de 1 día.
+  El laboratorio comprueba que ninguna regla generada es **más permisiva** que `access`. Los nombres de roles y permisos se comparan sin distinguir mayúsculas.
+- **`sessions`** — sesiones revocables con **veto global**. Al iniciar sesión (contraseña, OTP, OAuth2…) y al refrescar, el token de PocketBase se sustituye por otro idéntico (mismos claims y caducidad,
+  firmado con la misma clave) que lleva un `sid`; PocketBase y su API nativa lo aceptan. Revocar = vetar un `sid`: un middleware global (también `/api/*`) responde 401 a ese token, a sus refrescos y al refresh
+  (la lista vive en memoria, sin consultas por petición, y se guarda en `pbmini_sessions` —solo superusuario— para recargarla al reiniciar). Cada token propio se valida al emitirlo con `findAuthRecordByToken`;
+  si PocketBase lo rechazara se entrega el estándar y se avisa en el log (el login nunca se rompe). Se guarda el `sid`, nunca el token. `ctx.sessions()`, `ctx.revokeSession(id)`, `ctx.logout()`.
+  Funciona en proyectos existentes; `legacy: "allow"` respeta los tokens emitidos antes de activarlo (sin `sid`: solo `logoutEverywhere()` los mata) y `"deny"` los rechaza.
+  Límites: una conexión realtime (SSE) ya abierta no se corta; el veto vive en un solo proceso; **apagar el módulo deja de aplicar los vetos** (los tokens revocados no vencidos vuelven a valer; usa `logoutEverywhere()` antes si necesitas cerrarlo todo);
+  la firma propia usa `tokenKey + authToken.secret` (comportamiento observado de PocketBase, no documentado).
 - Siempre disponibles (sin módulo): `ctx.logout()` (expira la cookie `pb_auth`) y `ctx.logoutEverywhere()` (cambia la `tokenKey` del usuario, invalida todos sus tokens), solo por POST y con CSRF.
 
 ### Lo que NO añadimos (ya lo hace PocketBase)

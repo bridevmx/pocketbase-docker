@@ -13,3 +13,8 @@ $app.rootCmd.addCommand(new Command({
   short: "genera una página, un endpoint o un esquema: pbmini:new page|endpoint <ruta> [métodos] | schema <nombre>",
   run: (cmd, args) => require(`${__hooks}/lib/cli.js`).create(args),
 }));
+$app.rootCmd.addCommand(new Command({
+  use: "pbmini:access",
+  short: "pbmini:access rules -> reglas de PocketBase equivalentes a la configuración de access",
+  run: (cmd, args) => require(`${__hooks}/lib/cli.js`).access(args),
+}));
