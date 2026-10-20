@@ -40,4 +40,5 @@ function jobs() { // [{id, schedule}] validados
 function run(id) {
   try { require(`${__hooks}/cron/${id}.js`).run($app); } catch (err) { $app.logger().error("pbmini cron falló", "job", id, "error", String(err)); }
 }
-module.exports = { jobs, run };
+const valid = (expr) => typeof expr === "string" && expr.length <= 100 && ((EXPR.test(expr) && inRange(expr)) || MACROS.indexOf(expr) >= 0);
+module.exports = { jobs, run, valid };

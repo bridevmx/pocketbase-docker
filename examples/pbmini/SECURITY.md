@@ -360,3 +360,49 @@ tokens sin `sid`, tokens falsificados, corte masivo de 40 conexiones, caducidad 
 **Resultados finales de la Ronda 9c** (sessions con `sid` + realtime + `pbmini:new config`): Windows 10 nativo **1171 pasan, 0 fallan, 7 omitidas**; Linux (Ubuntu en WSL1) **1179 pasan, 0 fallan, 1 omitida** (`tsc`).
 Las pruebas de concurrencia S180/S181 mostraron fallos intermitentes de **conexión** (status 0 en 1–2 de 300 peticiones, nunca contenido cruzado) en 2 de 5 corridas completas de Windows tras un reinicio del equipo; pasan siempre en aislamiento. Ahora reintentan solo los errores de conexión (nunca los de contenido).
 `pbmini:new config` crea `pb_hooks/pbmini.config.js` copiando `pbmini.config.example.js` (una sola fuente de verdad), nunca sobrescribe y deja todo apagado.
+
+---
+# Ronda 10: módulo `telegram` (alertas, vinculación, grupos, botones y login por Mini App)
+
+**Objetivo:** notificaciones en tiempo real sin Firebase ni SMTP, sin abrir superficie nueva sin control. **Meta:** que ningún atacante (un usuario, un tercero con el webhook, o quien lea logs/base de datos) pueda enviar, leer, suplantar o ejecutar acciones ajenas.
+
+**Superficie y controles** (módulo opcional, apagado por defecto; ver README):
+- *Secretos:* token del bot y secret del webhook solo por entorno, con formato validado (arranque fail-closed) y redactados de errores/logs; ni el token ni el secret aparecen en las colecciones internas ni en la salida de `pbmini:telegram status`.
+- *Webhook:* `secret_token` en tiempo constante (403 sin detalle), cuerpo ≤64 KB y JSON estricto, `update_id` repetido ignorado, solo chats privados y un emisor igual al chat; todo lo demás se ignora con 200.
+- *Vinculación:* token aleatorio de 32 caracteres, solo su hash (sha256), un solo uso (UPDATE condicional dentro de una transacción), caducidad, un enlace nuevo invalida el anterior, un Telegram no puede estar en dos cuentas y 5 enlaces/hora por usuario.
+- *Envío:* destino solo `"me"` o un id de usuario; no en GET ni en rutas públicas; texto siempre escapado; `key` idempotente (índice único, también con peticiones simultáneas); límites por chat, usuario y hora; cuentas bloqueadas (`access.statusField`) no reciben;
+  reintentos con espera creciente y `retry_after`; 403 bloquea el vínculo; el contenido se borra al enviar; borrar el usuario borra vínculo, cola, enlaces y acciones.
+- *Botones:* acciones declaradas por nombre (archivo validado al arrancar), nonce de un solo uso (transacción) ligado al dueño y con caducidad; URLs solo `https`; un botón ajeno o manipulado no gasta el nonce del dueño.
+- *Mini App:* HMAC-SHA256 de `initData` en JS puro (`$security.hs256` no admite claves binarias; verificado contra `crypto` de Node), hash en tiempo constante, claves duplicadas/extra/rotas rechazadas, `auth_date` ≤ `maxAge` y no futura, `user.id` entero positivo y no bot, un solo uso por defecto, cuenta bloqueada → 403,
+  token con `sid` (revocable: logout veta el token también en `/api/*`) y límite por IP.
+
+**Pruebas (laboratorio, sección `VY`):** contra un Telegram falso en 127.0.0.1 (nunca contacta con `api.telegram.org`); ≈70 casos más 27 de arranque inválido. Mutaciones del módulo en `mut10.py`: ver resultado en el informe de la ronda.
+
+**Medido o decidido al construirlo:** PocketBase lanza los crons en segundo plano (`POST /api/crons/{id}` devuelve antes de terminar); `created` (autodate) no se puede fijar por la API, por eso la purga usa fechas propias (`next_try`, `expires`);
+`$security.hs256` solo admite claves de texto; la Bot API no se contacta nunca en el laboratorio: la prueba real con un bot propio queda para `lab/real.py` (variables en `.env`).
+
+**Límites que quedan:** nonces, `update_id` y contadores en un solo proceso; el contenido lo ve Telegram; la API nativa de PocketBase no queda cubierta por este módulo; sin firma Ed25519 de terceros; sin probar OTP/OAuth2 con sesiones.
+
+---
+# Ronda 11: módulo `clip` (pagos con links de pago de Clip)
+
+**Objetivo:** cobrar con tarjeta sin que ningún atacante (un usuario, quien conozca la URL del webhook, o quien lea logs o la base de datos) pueda dar un pago por bueno sin que Clip lo confirme, cobrar menos de lo debido, ver o mover pagos ajenos, o reembolsar. **Meta:** `paid` solo si Clip responde COMPLETED con **nuestra** referencia, **nuestro** monto, **nuestra** moneda y un recibo único.
+
+**Medido contra Clip real (cuenta de producción, $1, 2026-10-19/20; ver también `lab/real.py`/`clip_refund.py`):**
+- La autenticación es `Authorization: Basic <base64(API_KEY:SECRET)>` tal cual (header `authorization` en minúsculas también vale). Sin 403 por región desde México.
+- Crear: `payment_request_url` = `https://pago.clip.mx/v3/<uuid>` (el comprador va a `…/card`), `qr_image_url` = `https://qr.payclip.com/<uuid>?version=v3`, `expires_at` = **3 días** después de crear (la contradicción de la documentación queda resuelta).
+- El **webhook llega** `{id, origin, event_type}`: uno al **crear** el link (`INSERT`, estado `CHECKOUT_CREATED`) y otro **en el momento del pago**, antes de que el comprador regrese a la tienda; el `GET` ya trae `status`, `amount` (número), `currency` y `receipt_no` (8 caracteres) al completarse. No se observaron reintentos (no se probó con el endpoint caído).
+- **PocketBase registra la URL del webhook con `?token=`** en su log de peticiones: por eso el token del webhook no firma nada (las referencias se firman con `CLIP_API_TOKEN`).
+- **Reembolso:** `POST /refunds` con `reference: { type: "receipt", id: <receipt_no> }`, `amount` (pesos) y `reason` → **201** `{ id, transaction_id, status: "approved", status_message: "Cancelled", amount: "1" (texto), receipt_no (el MISMO del pago), reference }`; dentro de las primeras 24 h es una **cancelación**. Después, `GET /checkout/{id}` sigue diciendo `CHECKOUT_COMPLETED` (con `payment_id`, `last_status_message`, `pending_action`): un reembolso no se detecta consultando el checkout. **Cloudflare (api.payclip.com) bloquea el User-Agent por defecto de Python (error 1010)**; el cliente HTTP de PocketBase (Go) pasa.
+
+**Controles:**
+- *Secretos:* `CLIP_API_TOKEN` (formato `Basic …`), `CLIP_WEBHOOK_TOKEN` (≥32, comparación en tiempo constante, rotación con `_PREV`), host de la API fijo (`api.payclip.com`; solo `http://127.0.0.1` en el laboratorio), URL pública https fija (sin ruta, parámetros ni credenciales), arranque fail-closed (una prueba por opción y variable), redacción en errores y logs, nada en colecciones, respuestas ni CLI.
+- *Crear:* sesión de usuario de la colección (no superusuario, no bloqueado), no en GET ni en rutas públicas, monto entero en centavos del **servidor** dentro del rango, descripción sin controles, `subject`, URLs relativas únicamente, sin claves extra (mass assignment), límites por usuario/minuto y pagos pendientes, idempotencia por `idemKey` (también con 40 hilos simultáneos), la referencia se guarda **antes** de llamar a Clip, errores de Clip → 502 genérico + fila `failed` con nota sin secretos, el link solo puede apuntar a `*.clip.mx`/`*.payclip.com` (https).
+- *Verificar:* el aviso/retorno solo disparan la consulta; el id debe ser UUID **y existir en nuestra base** (si no, sin llamada a Clip y 200 idéntico); intervalo mínimo por pago (solo cuentan las consultas hechas); `decide()` puro (20 329 comprobaciones, 24 mutaciones detectadas); transición atómica dentro de una transacción con la API de registros (los hooks nativos corren UNA vez; probado con 40 hilos); una respuesta vieja de Clip no hace retroceder un pago confirmado; recibo único (índice único + comprobación; también en carrera); pago tardío registrado; anomalías → `review` sin repetir alarmas.
+- *Webhook:* límite por IP antes del token, token en tiempo constante (y el anterior en rotaciones), cuerpo acotado, JSON estricto, solo se usa `id` (UUID); siempre `{"ok":true}`; si Clip falla, 200 y lo recupera el conciliador.
+- *Propiedad y datos:* solo el dueño o un superusuario (el resto, 404 sin llamar a Clip); `get` sin datos internos; colección con reglas `null` (o `readRules` con campos ocultos); anonimización al borrar el usuario; retención por `closed_at`.
+- *Dinero:* reembolso solo de pagos `paid` con recibo, solo superusuario/CLI con `confirm`, candado atómico + idempotency-key + el propio Clip (AI1802); rechazo del emisor o estado desconocido **no** cuenta como reembolsado; resolución de anomalías solo desde `review` con recibo opcional, único y de formato válido.
+
+**Pruebas (sección `VP`):** 129 casos contra un Clip falso en 127.0.0.1 (valida el cuerpo igual de estricto que el oficial y imita la forma REAL medida del reembolso); más `unit_clip.js` (núcleo puro). Mutaciones: fase 2 (24/24), fase 3 (33/33), fase 4 (35/37 + 2 redundantes por diseño: el recibo repetido lo cubren el índice único y el filtro de estados finales), fase 5 (35/36 + 1 redundante por diseño: «solo se reembolsa un pago paid» lo cubre además el candado atómico `status = 'paid'`).
+
+**Límites que quedan:** un solo proceso (contadores, intervalos y candados en memoria); Clip ve monto, descripción y referencia; la ventana de conciliación (`windowHours`) no es comprobable en el laboratorio; sin reembolsos parciales/MSI/efectivo; el reembolso real solo se verificó con dinero real una vez (primeras 24 h = cancelación); no se probó el comportamiento de reintentos del webhook ni la latencia entre cobro y `GET`.

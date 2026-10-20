@@ -28,3 +28,11 @@ Secciones nuevas (prefijo `V` en los ids; `--only VN,VG,...`): **N** esquemas re
 **L** layouts anidados · **E** páginas de error · **I** i18n · **A** acceso (incluye modo `role` en un servidor adicional) · **C** cron · **M** correo (servidor SMTP de captura local) ·
 **S** sesiones (incluye la migración `legacy` en un servidor adicional) · **X** generador `pbmini:new` · **D** deriva de tipos (+ `tsc` si hay Node y red) · **F** fuzzer guiado por definiciones (`attacks_guided.py`).
 Los casos de arranque inválido (fail-closed) de estas funciones viven en `attacks_v2.bad_pages()`.
+
+## Ronda 10 (Telegram)
+Sección **Y** (`attacks_tg.py`, ids `VY…`, `--only VY`): servidor con `telegram` activo contra un **Telegram falso** (`FakeTelegram`: registra llamadas y falla a demanda con 429/403/500/400). Cubre vinculación, webhook, envío, idempotencia, límites,
+fallos y reintentos, grupos y ritmo, operadores, botones, login por Mini App (con initData firmado en Python), CLI, retención y arranque inválido. `real.py` (pruebas reales con `.env`): `serve`, `check [--send]` y `selftest` contra la API real de Telegram.
+
+## Ronda 11 (Clip)
+Sección **P** (`attacks_clip.py`, ids `VP…`, `--only VP`): módulo `clip` contra un **Clip falso** (`fake_clip.py`: valida el cuerpo oficial, imita estados, recibos, anomalías, fallos y reembolsos con la forma real medida). `unit_clip.js` prueba el núcleo puro con Node (`node unit_clip.js ../pb_hooks`).
+Pruebas reales con dinero ($1) y cloudflared: `clip_refund.py` (reembolso; **lo ejecuta una persona**, simulacro sin `--confirm`) y la sonda descrita en SECURITY.md. Cloudflare bloquea el User-Agent por defecto de Python: el script usa uno propio.

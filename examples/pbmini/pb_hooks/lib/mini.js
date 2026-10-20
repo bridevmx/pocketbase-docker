@@ -331,7 +331,7 @@ function mutate(app, e, route, name, op, id, data) {
 }
 
 const i18n = () => require(`${__hooks}/lib/i18n.js`);
-const mod = (n) => require(`${__hooks}/lib/${n}.js`); // access, sessions, mail, config, cron (módulos opcionales; apagados por defecto)
+const mod = (n) => require(`${__hooks}/lib/${n}.js`); // access, sessions, mail, config, cron, telegram (módulos opcionales; apagados por defecto)
 // ---- páginas de error: solo rutas con .html y clientes que aceptan text/html; el contenido es fijo (Status/Reason), nunca datos de la petición ----
 const REASONS = { 400: "Bad Request", 401: "Unauthorized", 402: "Payment Required", 403: "Forbidden", 404: "Not Found", 414: "URI Too Long", 422: "Unprocessable Entity", 429: "Too Many Requests", 500: "Internal Server Error" };
 function wantsHtml(e) {
@@ -358,6 +358,12 @@ function buildContext(e, route, params, q, b, state) {
     hasRole: (role) => mod("access").hasRole(e, role),
     membership: () => mod("access").membership(e),
     mail: (name, opt) => mod("mail").send(e, route, name, opt),
+    telegram: (target, msg) => mod("telegram").sendUser(e, route, target, msg),
+    telegramGroup: (name, msg, opt) => mod("telegram").sendGroup(e, route, name, msg, opt),
+    telegramAlert: (msg, opt) => mod("telegram").ctxAlert(e, route, msg, opt),
+    telegramLink: () => mod("telegram").link(e, route),
+    notify: (to, msg, opt) => mod("notify").ctxSend(e, route, to, msg, opt),
+    clip: { createPayment: (opts) => mod("clip").createPayment(e, route, opts), refund: (id) => mod("clip").ctxRefund(e, route, id), verify: (id) => mod("clip").ctxVerify(e, route, id), get: (id) => mod("clip").ctxGet(e, route, id), list: (q) => mod("clip").ctxList(e, route, q) },
     logout: () => mod("sessions").logout(e, route),
     logoutEverywhere: () => mod("sessions").logoutEverywhere(e, route),
     sessions: () => mod("sessions").list(e),
@@ -599,6 +605,8 @@ function register() {
     i18n().load(); // valida pb_hooks/i18n/*.json (claves y {variables} iguales en todos los idiomas)
     const conf = mod("config").load(); // pbmini.config.js (todo apagado por defecto)
     mod("mail").validate();
+    mod("telegram").validate(); // entorno (TELEGRAM_*) y acciones de botones: aborta si algo falta o es inválido
+    mod("clip").validate(); // entorno (CLIP_*): aborta si algo falta o es inválido
     mod("cron").jobs().forEach((j) => { // el cuerpo de cada tarea se serializa y corre en una VM aislada: el id (validado ^[a-z0-9_]+$) va como literal
       const fn = eval("(() => require(__hooks + '/lib/cron.js').run(" + JSON.stringify(j.id) + "))");
       cronAdd("pbmini_" + j.id, j.schedule, fn);
@@ -617,6 +625,18 @@ function register() {
         onRealtimeMessageSend((e) => { if (!require(`${__hooks}/lib/sessions.js`).allowMessage(e)) return; return e.next(); });
       }
       cronAdd("pbmini_sessions_gc", "17 3 * * *", () => require(`${__hooks}/lib/sessions.js`).gc($app));
+    }
+    if (conf.telegram.enabled) {
+      mod("telegram").routes(); // webhook y login de la Mini App
+      cronAdd("pbmini_telegram_outbox", "* * * * *", () => require(`${__hooks}/lib/telegram.js`).drain($app));
+      cronAdd("pbmini_telegram_gc", "23 3 * * *", () => require(`${__hooks}/lib/telegram.js`).gc($app));
+      onRecordAfterDeleteSuccess((e) => { require(`${__hooks}/lib/telegram.js`).onUserDeleted(e); return e.next(); }, conf.telegram.collection);
+    }
+    if (conf.clip.enabled) {
+      mod("clip").routes(); // webhook de Clip (POST, token en la URL)
+      cronAdd("pbmini_clip_reconcile", conf.clip.reconcile.cron, () => require(`${__hooks}/lib/clip.js`).reconcile($app)); // respaldo de los webhooks perdidos
+      cronAdd("pbmini_clip_purge", "17 3 * * *", () => require(`${__hooks}/lib/clip.js`).purge($app)); // retención por fechas de cierre
+      onRecordAfterDeleteSuccess((e) => { require(`${__hooks}/lib/clip.js`).onUserDeleted(e); return e.next(); }, conf.clip.collection); // anonimiza los pagos del usuario borrado
     }
     $app.onServe().bindFunc((e) => { require(`${__hooks}/lib/mini.js`).onServe(); return e.next(); });
     routerUse(new Middleware((e) => require(`${__hooks}/lib/mini.js`).guardPaths(e), -1100, "pbmini_paths"));
@@ -810,6 +830,8 @@ function onServe() {
   const conf = mod("config").load();
   if (conf.sessions.enabled) attempt("sessions", () => { mod("sessions").ensure($app); console.log(`pbmini: sessions activo; ${mod("sessions").loadDeny($app)} sesiones vetadas recargadas`); });
   if (conf.access.enabled) attempt("access", () => mod("access").validateSchema($app));
+  if (conf.telegram.enabled) attempt("telegram", () => { mod("telegram").ensure($app); mod("telegram").validateSchema($app); mod("telegram").boot(); });
+  if (conf.clip.enabled) attempt("clip", () => { mod("clip").validateSchema($app); mod("clip").ensure($app); });
 }
 
 // Tabla de rutas como datos puros (sin funciones): la consumen pbmini:routes, el fuzzer guiado por definiciones y la prueba de tipos.

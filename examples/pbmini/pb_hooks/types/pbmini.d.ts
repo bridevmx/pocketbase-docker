@@ -93,7 +93,44 @@ export interface Ctx {
   logoutEverywhere(): void;
   sessions(): SessionInfo[];
   revokeSession(id: string): boolean;
+  /** Telegram (módulo opcional; solo rutas no públicas y no GET). destino: "me" o el id de un usuario. */
+  telegram(target: "me" | string, msg: TelegramMessage): { status: "sent" | "queued" | "duplicate" | "not_linked" | "blocked" | "failed" };
+  /** Un aviso a todos los usuarios vinculados de un grupo definido en telegram.groups (se encola y el cron lo reparte con ritmo). */
+  telegramGroup(group: string, msg: TelegramMessage, opt?: { key?: string }): { queued: number; skipped: number; members: number };
+  /** Alerta a los chats de TELEGRAM_OPERATOR_CHATS. */
+  telegramAlert(msg: TelegramMessage, opt?: { key?: string }): { queued: number };
+  /** Enlace de un solo uso para vincular el Telegram del usuario autenticado. */
+  telegramLink(): { url: string; expires: string };
+  /** Envío simple a los canales habilitados (hoy Telegram). { user: "me" } = usuario autenticado. No en GET ni en rutas públicas. */
+  notify(to: NotifyTarget, msg: string | TelegramMessage, opt?: { key?: string }): { telegram?: any };
+  /** Pagos con links de Clip (módulo opcional). No en GET ni en rutas públicas; requiere sesión de la colección de usuarios. */
+  clip: {
+    /** Crea el pago y el link en Clip. `amount` en CENTAVOS enteros calculados en el SERVIDOR (nunca del cliente); `urls` solo rutas relativas; `idemKey` repite el mismo pago. */
+    createPayment(opts: ClipPaymentOptions): ClipPayment;
+    /** Pregunta a Clip (con intervalo mínimo) y devuelve el pago ACTUALIZADO. Solo el dueño o un superusuario; el resto recibe 404. Se puede usar desde rutas GET. */
+    verify(id: string): ClipPaymentView;
+    /** Lee un pago propio (sin datos internos). */
+    get(id: string): ClipPaymentView;
+    /** Pagos propios de un sujeto, del más nuevo al más viejo. */
+    list(query: { subjectKind: string; subjectId: string }): ClipPaymentView[];
+    /** Reembolso TOTAL: pide primero el reembolso a Clip y solo si lo aprueba pasa a `refunded`. Solo rutas `auth: "superuser"` y no desde GET (mueve dinero). */
+    refund(id: string): { status: ClipStatus; changed: boolean; payment?: ClipPaymentView };
+  };
 }
+
+export interface ClipPaymentOptions { amount: number; description: string; subject: { kind: string; id: string }; urls: { success: string; error: string; default: string }; idemKey?: string }
+export type ClipStatus = "created" | "pending" | "paid" | "failed" | "expired" | "review" | "refunded";
+export interface ClipPaymentView { id: string; reference: string; status: ClipStatus; amount: number; currency: "MXN"; description: string; subject: { kind: string; id: string }; url: string; receiptNo: string; paidAt: string; expiresAt: string; created: string }
+export interface ClipPayment { id: string; reference: string; url: string; status: ClipStatus; amount: number; currency: "MXN" }
+
+/** Destino de notify: un usuario (id o "me"), un grupo de telegram.groups, o los operadores. */
+export type NotifyTarget = { user: string } | { group: string } | { ops: true };
+
+export type TelegramButton = { text: string } & ({ action: string; args?: object } | { url: string } | { webApp: true });
+/** El texto se escapa siempre (no admite HTML). key = idempotencia: la misma key no se envía dos veces. */
+export interface TelegramMessage { text: string; title?: string; buttons?: TelegramButton[][]; silent?: boolean; protect?: boolean; key?: string }
+/** Acción de botón: pb_hooks/telegram/actions/<nombre>.js */
+export interface TelegramAction { run(app: any, ctx: { user: any; args: any }): string | void }
 
 type Handler = (ctx: Ctx) => Reply | object | void;
 
@@ -127,4 +164,14 @@ export interface Config {
     planField?: string; planOrder?: string[]; expiresField?: string; grace?: number; statusField?: string; blockedStatuses?: string[] };
   sessions?: { enabled: boolean; collection?: string; legacy?: "allow" | "deny"; realtime?: boolean };
   mail?: { maxPerRecipientPerHour?: number; maxPerHour?: number };
+  telegram?: { enabled: boolean; collection?: string; linkTtl?: number; actionTtl?: number;
+    login?: { enabled?: boolean; maxAge?: number; autoprovision?: boolean; singleUse?: boolean; perMinute?: number };
+    groups?: { [name: string]: { field: string; values: string[] } };
+    limits?: { perChatPerMinute?: number; perHour?: number; perUserPerHour?: number };
+    retention?: { sentDays?: number; linksDays?: number } };
+  clip?: { enabled: boolean; collection?: string; publicUrl?: string; referencePrefix?: string; methods?: ("credit" | "debit" | "cash")[]; openOnCardForm?: boolean;
+    amount?: { min?: number; max?: number }; descriptionMax?: number; timeoutSeconds?: number; expiresInMinutes?: number | null; installmentsMsi?: number[] | null; international?: boolean;
+    webhook?: { path?: string; maxBytes?: number; perIpPerMin?: number }; create?: { perUserPerMin?: number; maxPendingPerUser?: number }; verify?: { minIntervalMs?: number; perUserPerMin?: number };
+    reconcile?: { cron?: string; windowHours?: number; batch?: number; staleCreatedMinutes?: number; minAgeMinutes?: number };
+    retention?: { failedDays?: number; paidDays?: number }; readRules?: boolean };
 }

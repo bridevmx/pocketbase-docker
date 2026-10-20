@@ -10,11 +10,21 @@ $app.rootCmd.addCommand(new Command({
 }));
 $app.rootCmd.addCommand(new Command({
   use: "pbmini:new",
-  short: "genera una página, un endpoint o un esquema: pbmini:new page|endpoint <ruta> [métodos] | schema <nombre> | config",
+  short: "genera una página, un endpoint, un esquema, la configuración o una acción de Telegram: pbmini:new page|endpoint <ruta> [métodos] | schema <nombre> | config | tgaction <nombre>",
   run: (cmd, args) => require(`${__hooks}/lib/cli.js`).create(args),
 }));
 $app.rootCmd.addCommand(new Command({
   use: "pbmini:access",
   short: "pbmini:access rules -> reglas de PocketBase equivalentes a la configuración de access",
   run: (cmd, args) => require(`${__hooks}/lib/cli.js`).access(args),
+}));
+$app.rootCmd.addCommand(new Command({
+  use: "pbmini:telegram",
+  short: "pbmini:telegram status -> estado del módulo de Telegram (sin mostrar secretos)",
+  run: (cmd, args) => require(`${__hooks}/lib/cli.js`).telegram(args),
+}));
+$app.rootCmd.addCommand(new Command({
+  use: "pbmini:clip",
+  short: "pbmini:clip status|show|reconcile|purge|check|review|refund|refunded -> pagos con Clip (las operaciones que mueven dinero exigen `confirm`)",
+  run: (cmd, args) => require(`${__hooks}/lib/cli.js`).clip(args),
 }));

@@ -425,6 +425,10 @@ def catalog(ctx):
     cases.extend(attacks_deep.build(sys.modules[__name__], ctx, attacks))
     import attacks_v2
     cases.extend(attacks_v2.build(sys.modules[__name__], ctx, attacks))
+    import attacks_tg
+    cases.extend(attacks_tg.build(sys.modules[__name__], ctx, attacks))
+    import attacks_clip
+    cases.extend(attacks_clip.build(sys.modules[__name__], ctx, attacks))
     import attacks_guided
     cases.extend(attacks_guided.build(sys.modules[__name__], ctx, attacks, attacks_v2.routes_table))
 

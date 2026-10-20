@@ -196,4 +196,23 @@ function gc(app) { // sesiones vencidas (su token ya no vale) y vetos en memoria
   const st = app.store(), ks = st.keys(), now = Date.now();
   for (let i = 0; i < ks.length; i++) if (ks[i].indexOf(DENY) === 0 && Number(st.get(ks[i])) < now) st.remove(ks[i]);
 }
-module.exports = { ensure, loadDeny, issue, guard, verify, denied, list, revoke, revokeAll, logout, logoutEverywhere, gc, kick, tagClient, allowMessage, onUserUpdated, onUserDeleted, COLL };
+// Login externo (p. ej. Mini App de Telegram): emite el token del usuario, con `sid` y sesión registrada si el módulo está activo. Nunca lanza por el registro de la sesión.
+function issueFor(app, record, e) {
+  const c = cfg(), std = record.newAuthToken();
+  if (!c.enabled || record.collection().name !== c.collection) return std;
+  try {
+    const claims = claimsOf(std);
+    if (!claims) throw new Error("token estándar ilegible");
+    const col = record.collection(), now = Date.now(), exp = Number(claims.exp) * 1000, sid = $security.randomString(16);
+    const token = $security.createJWT(Object.assign({}, claims, { sid }), record.tokenKey() + col.authToken.secret, Math.max(1, Math.floor((exp - now) / 1000)));
+    const back = app.findAuthRecordByToken(token, "auth");
+    if (!back || back.id !== record.id) throw new Error("PocketBase rechazó el token propio");
+    const row = new Record(app.findCollectionByNameOrId(COLL));
+    row.set("sid", sid); row.set("rid", record.id); row.set("coll", c.collection); row.set("revoked", false);
+    row.set("ip", String(e.realIP() || "").replace(CTRL, "").slice(0, 64)); row.set("ua", String(e.request.header.get("User-Agent") || "").replace(CTRL, " ").slice(0, 200));
+    row.set("expires", dt(isFinite(exp) ? exp : now + 14 * 86400000)); row.set("seen", dt(now));
+    app.save(row);
+    return token;
+  } catch (err) { app.logger().error("pbmini sessions: login externo con el token estándar de PocketBase (sin sid)", "error", String(err)); return std; }
+}
+module.exports = { issueFor, ensure, loadDeny, issue, guard, verify, denied, list, revoke, revokeAll, logout, logoutEverywhere, gc, kick, tagClient, allowMessage, onUserUpdated, onUserDeleted, COLL };

@@ -4,6 +4,9 @@
 //   ./pocketbase pbmini:new page|endpoint <ruta> [métodos]   crea pages/<ruta>.js (+ .html si es page); métodos: get,post,put,patch,delete
 //   ./pocketbase pbmini:new schema <nombre>              crea pages/_schemas/<nombre>.js
 //   ./pocketbase pbmini:new config                       crea pb_hooks/pbmini.config.js copiando pbmini.config.example.js (todo apagado; nunca sobrescribe)
+//   ./pocketbase pbmini:new tgaction <nombre>            crea pb_hooks/telegram/actions/<nombre>.js (acción de un botón de Telegram)
+//   ./pocketbase pbmini:clip <subcomando>               pagos con Clip: status | show | reconcile | purge | check | review | refund | refunded (ver clip() abajo)
+//   ./pocketbase pbmini:telegram status                  estado del módulo (configuración, variables, webhook registrado, cola y vínculos; sin mostrar secretos)
 // Ejemplos:  pbmini:new endpoint users/[id]/update post     pbmini:new page blog/[slug]     pbmini:new page docs/   (index de la carpeta)
 const MARK = "PBMINI_ROUTES_JSON";
 const names = () => require(`${__hooks}/lib/names.js`);
@@ -69,6 +72,15 @@ function create(args) {
     $os.writeFile(dst, $os.readFile(src), 0o644);
     console.log("creado " + dst + " (todo apagado: actívalo editando el archivo y reinicia)"); return;
   }
+  if (kind === "tgaction") {
+    const nm = args[1];
+    if (args.length !== 2 || !nm || !/^[a-z0-9][a-z0-9_]{0,31}$/.test(nm)) fail("uso: pbmini:new tgaction <nombre> (minúsculas, dígitos y _; máx. 32)");
+    const dir = `${__hooks}/telegram/actions`, file = `${dir}/${nm}.js`;
+    if (exists(file)) fail(`ya existe ${file}`);
+    $os.mkdirAll(dir, 0o755);
+    $os.writeFile(file, '/** @type {import("../../types/pbmini").TelegramAction} */\nmodule.exports = {\n  // Corre cuando el DUEÑO del botón lo pulsa (una sola vez, antes de caducar): ctx.telegram("me", { text, buttons: [[{ text: "OK", action: "' + nm + '" }]] }).\n  // `app` es $app; devuelve el texto que verá el usuario (hasta 200 caracteres).\n  run(app, { user, args }) {\n    return "Listo";\n  },\n};\n', 0o644);
+    console.log("creado " + file); return;
+  }
   const root = `${__hooks}/pages`;
   if (!exists(root)) fail("no existe pb_hooks/pages");
   if (kind === "schema") {
@@ -80,7 +92,7 @@ function create(args) {
     $os.writeFile(file, '/** Esquema reutilizable: úsalo con `body: "' + nm + '"` / `query: "' + nm + '"` */\nmodule.exports = {\n  // campo: { type: "string", max: 100, required: true },\n};\n', 0o644);
     console.log("creado " + file); return;
   }
-  if (kind !== "page" && kind !== "endpoint") fail("uso: pbmini:new page|endpoint <ruta> [métodos] | pbmini:new schema <nombre> | pbmini:new config");
+  if (kind !== "page" && kind !== "endpoint") fail("uso: pbmini:new page|endpoint <ruta> [métodos] | pbmini:new schema <nombre> | pbmini:new config | pbmini:new tgaction <nombre>");
   const pl = plan(args[1] === undefined ? "" : args[1]);
   const methods = (args[2] || "get").split(",").map((x) => x.trim().toLowerCase());
   if (methods.length === 0 || methods.length > 5 || new Set(methods).size !== methods.length || methods.some((m) => METHODS.indexOf(m) < 0)) fail("métodos inválidos (get,post,put,patch,delete)");
@@ -100,4 +112,61 @@ function access(args) {
   const t = require(`${__hooks}/lib/mini.js`).routeTable();
   require(`${__hooks}/lib/access.js`).rules(t).forEach((l) => console.log(l));
 }
-module.exports = { routes, create, access };
+// pbmini:telegram status  -> diagnóstico sin secretos: qué falta, si el webhook apunta a esta app, cuánto hay en cola
+function telegram(args) {
+  if ((args || [])[0] !== "status") fail("uso: pbmini:telegram status");
+  const c = require(`${__hooks}/lib/config.js`).load().telegram, out = { enabled: c.enabled };
+  if (c.enabled) {
+    const T = require(`${__hooks}/lib/telegram.js`), e = T.env();
+    out.collection = c.collection; out.login = c.login.enabled; out.groups = Object.keys(c.groups); out.operators = e.ops.length;
+    out.env = { TELEGRAM_BOT_TOKEN: "ok", TELEGRAM_WEBHOOK_SECRET: "ok", TELEGRAM_WEBHOOK_URL: e.hook || "(sin definir: el webhook se registra a mano)", TELEGRAM_BOT_USERNAME: e.user || "(se obtiene con getMe)", TELEGRAM_MINIAPP_URL: e.mini || "(sin definir)" };
+    const me = T.api("getMe", {}); out.getMe = me.ok ? "@" + me.json.result.username : `FALLO (${me.status}) ${me.desc}`;
+    const wi = T.api("getWebhookInfo", {}); out.webhook = wi.ok ? { url: wi.json.result.url || "(ninguno)", pendientes: wi.json.result.pending_update_count, ultimoError: wi.json.result.last_error_message || null } : `FALLO (${wi.status}) ${wi.desc}`;
+    const count = (coll, f) => { try { return $app.countRecords(coll, $dbx.exp(f)); } catch (_) { return "n/d"; } };
+    out.cola = { pendientes: count(T.COLL.OUTBOX, "state = 'pending'"), muertos: count(T.COLL.OUTBOX, "state = 'dead'") };
+    out.vinculos = { activos: count(T.COLL.CHATS, "status = 'active'"), bloqueados: count(T.COLL.CHATS, "status = 'blocked'") };
+  }
+  console.log(JSON.stringify(out, null, 2));
+}
+
+// pbmini:clip <subcomando> [args]  (argumentos POSICIONALES; las operaciones que mueven dinero o datos exigen la palabra `confirm`)
+//   status | show <id|referencia> | reconcile | purge [dry] | check [pesos] [wait] | review <id> paid|failed [recibo] confirm | refund <id> confirm | refunded <id> confirm
+function clip(args) {
+  args = (args || []).map(String);
+  const sub = args[0], conf = require(`${__hooks}/lib/config.js`).load().clip, T = require(`${__hooks}/lib/clip.js`);
+  const out = (o) => console.log(typeof o === "string" ? o : JSON.stringify(o, null, 2)), die = (m, code) => { console.log("pbmini:clip: " + m); $os.exit(code || 1); };
+  if (!conf.enabled) die("el módulo está apagado (clip.enabled en pbmini.config.js)");
+  const en = T.env(), confirm = args[args.length - 1] === "confirm", rest = confirm ? args.slice(0, -1) : args;
+  const need = () => { if (!confirm) die("esta operación requiere la palabra `confirm` al final (nada se ha cambiado)", 2); };
+  const show = (r) => ({ id: r.id, reference: r.getString("reference"), status: r.getString("status"), amount: r.getInt("amount"), currency: r.getString("currency"), clip_id: r.getString("clip_id"), user: r.getString("user"), subject: r.getString("subject_kind") + ":" + r.getString("subject_id"),
+    receipt_no: r.getString("receipt_no"), note: r.getString("note"), created: r.getString("created"), paid_at: r.getString("paid_at"), closed_at: r.getString("closed_at"), activated_at: r.getString("activated_at"), refund_id: r.getString("refund_id"), refunded_at: r.getString("refunded_at") });
+  if (sub === "status") {
+    const count = (st) => { try { return $app.countRecords(T.COLL, $dbx.exp("status = {:s}", { s: st })); } catch (_) { return "n/d"; } }, by = {};
+    Object.keys(T.TRANSITIONS).forEach((st) => { by[st] = count(st); });
+    return out({ enabled: true, publicUrl: en.pub, webhook: en.pub + conf.webhook.path + "?token=<…>", api: en.api, env: { CLIP_API_TOKEN: "ok", CLIP_WEBHOOK_TOKEN: "ok", CLIP_WEBHOOK_TOKEN_PREV: en.prev ? "ok (rotación en curso)" : "(sin definir)" }, collection: conf.collection, methods: conf.methods, amount: conf.amount, reconcile: conf.reconcile, retention: conf.retention, readRules: conf.readRules, payments: by });
+  }
+  if (sub === "show") { if (rest.length !== 2) die("uso: pbmini:clip show <id|referencia>"); let r = null; try { r = /^[a-z0-9]{15}$/.test(rest[1]) ? $app.findRecordById(T.COLL, rest[1]) : $app.findFirstRecordByData(T.COLL, "reference", rest[1]); } catch (_) {} if (!r) die("pago no encontrado"); return out(show(r)); }
+  if (sub === "reconcile") { const r = T.reconcile($app); out(r); if (r.review > 0) $os.exit(1); return; }
+  if (sub === "purge") { out(T.purge($app, { dryRun: rest[1] === "dry" })); return; }
+  if (sub === "review") {
+    if (rest.length < 3 || rest.length > 4) die("uso: pbmini:clip review <id> paid|failed [recibo] confirm"); need();
+    try { out(T.reviewResolve($app, rest[1], rest[2], "cli", rest[3])); } catch (err) { die(String(err.message || err)); } return;
+  }
+  if (sub === "refund") { if (rest.length !== 2) die("uso: pbmini:clip refund <id> confirm"); need(); try { out(T.refund($app, rest[1], "cli")); } catch (err) { die(String(err.message || err)); } return; }
+  if (sub === "refunded") { if (rest.length !== 2) die("uso: pbmini:clip refunded <id> confirm (solo registra un reembolso ya hecho en el panel de Clip)"); need(); try { out(T.markRefunded($app, rest[1], "cli")); } catch (err) { die(String(err.message || err)); } return; }
+  if (sub === "check") { // crea un link REAL de prueba (mínimo $1) y comprueba la forma de la respuesta; no guarda nada. Con `wait` espera tu pago (hasta 10 min).
+    const pesos = rest[1] && rest[1] !== "wait" ? rest[1] : "1", cents = T.toCents(pesos);
+    if (cents === null || cents < conf.amount.min || cents > conf.amount.max) die(`monto inválido (${pesos}): entre ${conf.amount.min / 100} y ${conf.amount.max / 100} pesos`);
+    const id = $security.randomStringWithAlphabet(15, "abcdefghijklmnopqrstuvwxyz0123456789"), ref = T.makeReference(conf.referencePrefix, en.token, id);
+    let made; try { made = T.createCheckout({ amountCents: cents, description: "Prueba pbmini", reference: ref, urls: { success: en.pub + "/", error: en.pub + "/", default: en.pub + "/" }, webhookUrl: `${en.pub}${conf.webhook.path}?token=${encodeURIComponent(en.hook)}` }); } catch (err) { die("Clip no creó el link: " + T.redact(err.message || err)); }
+    out({ ok: "Clip aceptó las credenciales", id: made.id, referencia: ref, pagar_en: made.url, vence: made.expiresAt });
+    const report = (remote) => [["estado COMPLETADO", remote.status === "paid", remote.rawStatus || "sin estado"], ["referencia propia", remote.reference === ref, `Clip: ${remote.reference || "ninguna"}`], ["monto", remote.amountCents === cents, `Clip: ${remote.amountCents} · esperado: ${cents} centavos`],
+      ["moneda MXN", remote.currency === "MXN", remote.currency || "ninguna"], ["receipt_no presente", remote.status === "paid" && !!remote.receiptNo, remote.receiptNo || (remote.status === "paid" ? "falta" : "solo aparece al completarse")]];
+    let remote = T.getCheckout(made.id);
+    if (rest[rest.length - 1] === "wait") { const end = Date.now() + 600000; while (remote.status !== "paid" && Date.now() < end) { sleep(3000); remote = T.getCheckout(made.id); } }
+    const rep = report(remote); rep.forEach((x) => console.log(`${x[1] ? "OK " : "-- "} ${x[0]}: ${x[2]}`));
+    if (rest[rest.length - 1] === "wait" && rep.some((x) => !x[1])) $os.exit(1); return;
+  }
+  die("uso: pbmini:clip status | show <id|referencia> | reconcile | purge [dry] | check [pesos] [wait] | review <id> paid|failed [recibo] confirm | refund <id> confirm | refunded <id> confirm");
+}
+module.exports = { routes, create, access, telegram, clip };
