@@ -202,6 +202,11 @@ def build(L, ctx, A):
     def rows(coll, filt=""):
         q = "/api/collections/%s/records?perPage=500&sort=created" % coll + (("&filter=" + urllib.parse.quote(filt)) if filt else "")
         return L.api(PORT, "GET", q, None, S["su"])["items"]
+    def kill_pending():   # los reintentos pendientes de pruebas anteriores no deben salir por el cron real (cada minuto) en mitad de otra prueba
+        for st_ in ("pending", "sending"):
+            for r_ in rows("pbmini_tg_outbox", f"state = '{st_}'"):
+                try: L.api(PORT, "PATCH", f"/api/collections/pbmini_tg_outbox/records/{r_['id']}", {"state": "dead", "payload": ""}, S["su"])
+                except Exception: pass
     def cron(name="pbmini_telegram_outbox", wait=1.5):   # PocketBase lanza el cron en segundo plano: se espera a que termine
         L.api(PORT, "POST", "/api/crons/" + name, {}, S["su"]); time.sleep(wait)
     def until(cond, t=20):
@@ -482,6 +487,7 @@ def build(L, ctx, A):
         f.clear(); f.mode = "400"; r = json.loads(post("/tg/me", tok, {"text": "c", "key": "r400"}).body)
         f.mode = "ok"; cron(); ob = rows("pbmini_tg_outbox", f'rid = "{uid}" && dedupe ~ "r400"')
         if r["status"] != "failed" or not ob or ob[0]["state"] != "dead" or ob[0]["payload"] != "" or f.sent(tg): bad.append(f"400 → {r}, fila {[(o['state'], o['payload'][:10]) for o in ob]}")
+        kill_pending()
         return not bad, "; ".join(bad) or "429 se reintenta tras retry_after y llega; 500 queda pendiente con espera creciente (no se reintenta de inmediato); 400 pasa a dead sin contenido"
     add("Fallos de Telegram: 429, 500 y 400", "429 reintenta, 500 espera, 400 muere sin guardar el contenido", failures)
 
@@ -552,7 +558,7 @@ def build(L, ctx, A):
         f.clear(); r = raw(PORT, "POST", "/tg/group", {"Authorization": S["su"], **J}, json.dumps({"name": "staff", "text": "aviso interno", "key": "g1"}))
         j = json.loads(r.body) if r.status == 200 else {}
         if j.get("queued") != 4: bad.append(f"se encolaron {j} (esperado 4: 3 admins + 1 editor/admin; sin vincular y suspendida fuera)")
-        if f.sent(): bad.append("el envío a grupos no debe salir dentro de la petición (lo reparte la cola)")
+        if [c for c in f.sent() if c["body"].get("text") == "aviso interno"]: bad.append("el envío a grupos no debe salir dentro de la petición (lo reparte la cola)")
         cron()
         got = {c["chat"] for c in f.sent() if c["body"]["text"] == "aviso interno"}
         if got != exp: bad.append(f"destinatarios {sorted(got)} (esperado {sorted(exp)})")
@@ -619,7 +625,7 @@ def build(L, ctx, A):
         if len(ac) != 1 or kb[0]["callback_data"][2:] in json.dumps(ac) or ac[0]["hash"] != hashlib.sha256(kb[0]["callback_data"][2:].encode()).hexdigest(): bad.append("el nonce debe guardarse solo como hash")
         for kind, why in (("unknown", "acción no declarada"), ("http", "url http"), ("two", "action y url a la vez"), ("extra", "clave de botón desconocida"), ("rows", "4 filas")):
             f.clear(); rr = post("/tg/btn", tok, {"kind": kind})
-            if rr.status != 500 or f.sent(): bad.append(f"{why} → {rr.status}, enviados {len(f.sent())}")
+            if rr.status != 500 or f.sent(tg): bad.append(f"{why} → {rr.status}, enviados {len(f.sent(tg))}")
         f.clear(); rr = post("/tg/btn", tok, {"kind": "webapp"}); w = f.sent(tg)
         if rr.status != 200 or not w or w[0]["body"]["reply_markup"]["inline_keyboard"][0][0].get("web_app") != {"url": MINI}: bad.append(f"botón webApp → {rr.status} {w[0]['body'] if w else None}")
         return not bad, "; ".join(bad) or "botón de acción = callback_data a:<24> (≤64 B) con nonce guardado como hash; url solo https; acción desconocida, doble tipo, claves extra y >3 filas rechazados; webApp usa TELEGRAM_MINIAPP_URL"
@@ -723,6 +729,7 @@ def build(L, ctx, A):
         n = len(f.sent(tg4))
         if fails: bad.append(f"{fails} guardados fallaron al superar el límite")
         if n > 20: bad.append(f"se enviaron {n} avisos a un chat en un minuto (máximo 20)")
+        kill_pending()
         return not bad, "; ".join(bad) or f"destino no vinculado/vacío/inválido, Telegram caído, cuenta bloqueada y límite superado: el guardado de la app nunca falla (avisos a un chat limitados a {n}); lo que no puede salir se encola o se descarta"
     add("Evento de la app: un fallo de Telegram nunca rompe el guardado", "Guardado 200 siempre; sin envío a no vinculados ni bloqueados; límites respetados", hook_safe)
 
@@ -944,6 +951,7 @@ def build(L, ctx, A):
         pb = L.PB(EXE, S["root"], PORT, env=S["env"]); pb.serve(); S["pb"] = pb
         if not pb.wait_ready(): return False, "no rearrancó"
         S["su"] = su_login(PORT)
+        kill_pending()
         return not bad, "; ".join(bad) or "con la API de Telegram caída el envío queda en cola (queued) y el token no aparece ni en el log ni en la cola"
     add("API de Telegram caída: cola sin filtrar el token", "queued; ni log ni cola contienen el token", token_redaction)
 
@@ -1028,6 +1036,45 @@ def build(L, ctx, A):
         finally: fe.stop()
         return not bad, "; ".join(bad) or "tgaction crea la plantilla sin sobrescribir y rechaza nombres inválidos; status informa (getMe, cola, vínculos) sin mostrar ningún secreto"
     add("CLI: pbmini:new tgaction y pbmini:telegram status", "Genera sin sobrescribir; el diagnóstico no muestra secretos", cli_tgaction)
+
+    # ------------------------------------------------------------------ notify: núcleo (node) y módulo apagado
+    NU = {"res": None}
+    def unit_n():
+        if NU["res"] is None:
+            node = shutil.which("node")
+            if not node: NU["res"] = ("skip", "no hay Node en este sistema (instálalo para correr las pruebas del núcleo de notify)")
+            else:
+                r = subprocess.run([node, os.path.join(L.HERE, "unit_notify.js"), os.path.join(L.ROOT, "pb_hooks")], capture_output=True, text=True, timeout=120, encoding="utf-8", errors="replace")
+                try: NU["res"] = ("ok", json.loads(r.stdout.strip().splitlines()[-1]))
+                except Exception: NU["res"] = ("err", (r.stdout + r.stderr)[-400:])
+        return NU["res"]
+    def unit_n_case(group, obj, meta):
+        def run(_):
+            kind, res = unit_n()
+            if kind == "skip": return None, "OMITIDO: " + res
+            if kind == "err": return False, "no se pudo ejecutar unit_notify.js: " + res
+            g = res["groups"].get(group)
+            if g is None: return False, f"el grupo «{group}» no existe en unit_notify.js"
+            return not g["fail"], ("; ".join(g["fail"][:6]) + (f" (+{len(g['fail']) - 6})" if len(g["fail"]) > 6 else "")) or f"{g['pass']} comprobaciones"
+        add(obj, meta, run)
+    unit_n_case("destino", "notify: el destino solo puede ser { user } | { group } | { ops: true } bien formado", "Una clave exacta; ids, nombres y «me» validados; claves raras, tipos erróneos, traversal y __proto__ rechazados")
+    unit_n_case("mensaje", "notify: texto simple o mensaje completo", "Un texto se convierte en { text }; un objeto pasa intacto")
+    unit_n_case("despacho", "notify: se despacha solo a canales habilitados, con destino y opciones intactos", "Sin canal => error y 0 envíos; un destino inválido nunca llega al canal; «me» solo dentro de una ruta")
+    unit_n_case("rutas (ctx.notify)", "ctx.notify: no desde GET ni rutas públicas; «me» = el usuario autenticado", "Superusuario solo a operadores/grupos; sin canales => error")
+
+    def notify_off(_):
+        bad = []; root, full = sandbox("tgnoff", BADPORT, {}, "module.exports = {};", {"n.js": 'module.exports = { auth: "user", post: (ctx) => ctx.json(ctx.notify({ user: "me" }, "x")) };'}, {})
+        pb = L.PB(EXE, root, BADPORT, env=full); pb.serve()
+        try:
+            if not pb.wait_ready(): return False, "no arrancó sin telegram: " + pb.log()[-200:]
+            su = L.api(BADPORT, "POST", "/api/collections/_superusers/auth-with-password", {"identity": L.SU_MAIL, "password": L.SU_PASS})["token"]
+            em = f"nn{os.getpid()}@lab.test"; L.api(BADPORT, "POST", "/api/collections/users/records", dict(email=em, password="Passw0rd!!", passwordConfirm="Passw0rd!!", verified=True), su)
+            tok = L.api(BADPORT, "POST", "/api/collections/users/auth-with-password", dict(identity=em, password="Passw0rd!!"))["token"]
+            r = raw(BADPORT, "POST", "/n", {"Authorization": tok, **J}, "{}")
+            if r.status != 500: bad.append(f"ctx.notify sin ningún canal habilitado debe ser un error de programación (500): {r.status}")
+        finally: pb.stop()
+        return not bad, "; ".join(bad) or "con telegram apagado ctx.notify falla (500) en vez de perder el aviso en silencio"
+    add("notify sin canales habilitados: error explícito, no un aviso perdido en silencio", "500 (error de programación)", notify_off)
 
     def teardown(_):
         try:

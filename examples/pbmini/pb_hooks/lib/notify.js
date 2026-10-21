@@ -41,4 +41,4 @@ function ctxSend(e, route, to, msg, opt) {
   ch.forEach((c) => { out[c] = require(`${__hooks}/lib/${c}.js`).send($app, t, m, opt); });
   return out;
 }
-module.exports = { send, ctxSend, channels };
+module.exports = { send, ctxSend, channels, target, message };

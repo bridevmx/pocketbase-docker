@@ -649,7 +649,7 @@ class Lab:
             ctx = seed(PB_PORT); ctx.update(port=PB_PORT, _symlinks=links, exe=self.exe, root=root)
             BUS.emit(type="env", version=ver, port=PB_PORT, symlinks=links)
             cases = catalog(ctx); pages = bad_page_cases(); lints = lint_cases()
-            if self.only: cases = [c for c in cases if c.id.startswith(tuple(self.only))]; pages = lints = []
+            if self.only: cases = [c for c in cases if c.id.startswith(tuple(self.only))]; pages = pages if any(o.startswith("F") for o in self.only) else []; lints = []
             total = len(cases) + len(pages) + len(lints) + 2
             BUS.emit(type="plan", total=total)
             counts = {"pass": 0, "fail": 0, "skip": 0}

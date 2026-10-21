@@ -133,7 +133,61 @@ def bad_pages():
         ("mutación con opción desconocida", {"x.js": pg('auth: "user", mutations: { a: { collection: "todos", op: "create", fields: ["title"], skipRules: true } }, post: (ctx) => ({})')}),
         ("cache.tags sin cache.server", {"x.js": pg('auth: "public", cache: { maxAge: 10, tags: ["posts"] }, get: (ctx) => ({})')}),
         ("cache.tags con nombre inválido", {"x.js": pg('auth: "public", cache: { maxAge: 10, server: true, tags: ["../x"] }, get: (ctx) => ({})')}),
-        ("opción de cache desconocida", {"x.js": pg('auth: "public", cache: { maxAge: 10, vary: "x" }, get: (ctx) => ({})')}),
+        ("opción de cache desconocida", {"x.js": pg('auth: "public", cache: { maxAge: 10, vary: "x" }, get: (ctx) => ({})')}),    ] + _cfg_cases()
+
+
+def _cfg_cases():
+    """Una prueba de arranque inválido por cada opción de access / sessions / mail (estándar de PLUGINS.md §5.2): cada configuración tiene UN solo defecto."""
+    cfg = lambda body: {"x.js": ok_page, "../pbmini.config.js": "module.exports = { %s };" % body}
+    ms = lambda extra="": 'access: { enabled: true, mode: "membership", roles: ["admin", "editor"], rolesField: "roles"%s }' % ((", " + extra) if extra else "")
+    rl = lambda extra="": 'access: { enabled: true, mode: "role", roles: ["admin", "editor"]%s }' % ((", " + extra) if extra else "")
+    many = "[" + ",".join('"r%d"' % i for i in range(33)) + "]"
+    perms65 = "[" + ",".join('"p%d"' % i for i in range(65)) + "]"
+    return [
+        ("config: access no es un objeto", cfg("access: 5")),
+        ("config: access.collection con formato inválido", cfg('access: { enabled: true, mode: "role", collection: "mi coleccion", roles: ["a"], field: "role" }')),
+        ("config: access.roles vacío", cfg('access: { enabled: true, mode: "role", roles: [], field: "role" }')),
+        ("config: access.roles con repetidos", cfg('access: { enabled: true, mode: "role", roles: ["a", "a"], field: "role" }')),
+        ("config: access.roles con más de 32", cfg('access: { enabled: true, mode: "role", roles: %s, field: "role" }' % many)),
+        ("config: access.roles no es una lista", cfg('access: { enabled: true, mode: "role", roles: "admin", field: "role" }')),
+        ("config: access modo role sin field", cfg(rl())),
+        ("config: access modo role con field inválido", cfg(rl('field: "1x y"'))),
+        ("config: access modo role con una opción de membership (planField)", cfg(rl('field: "role", planField: "plan", planOrder: ["free"]'))),
+        ("config: access modo membership con la opción field de role", cfg(ms('field: "role"'))),
+        ("config: access modo membership sin rolesField", cfg('access: { enabled: true, mode: "membership", roles: ["a"] }')),
+        ("config: access.rolesField inválido", cfg('access: { enabled: true, mode: "membership", roles: ["a"], rolesField: "a b" }')),
+        ("config: access.permissions no es un objeto", cfg(ms("permissions: [1]"))),
+        ("config: access.permissions con un rol no declarado", cfg(ms('permissions: { ghost: ["x"] }'))),
+        ("config: access.permissions de un rol que no es lista", cfg(ms('permissions: { admin: "x" }'))),
+        ("config: access.permissions con un permiso de formato inválido", cfg(ms('permissions: { admin: ["Bad Perm"] }'))),
+        ("config: access.permissions con más de 64 permisos", cfg(ms("permissions: { admin: %s }" % perms65))),
+        ("config: access.extraPermissions inválido", cfg(ms('extraPermissions: ["Bad Perm"]'))),
+        ("config: access.permissionsField inválido", cfg(ms('permissionsField: "a b"'))),
+        ("config: access.planField sin planOrder", cfg(ms('planField: "plan"'))),
+        ("config: access.planOrder con repetidos", cfg(ms('planField: "plan", planOrder: ["free", "free"]'))),
+        ("config: access.planOrder sin planField", cfg(ms('planOrder: ["free", "pro"]'))),
+        ("config: access.expiresField sin planField", cfg(ms('expiresField: "plan_expires"'))),
+        ("config: access.expiresField inválido", cfg(ms('planField: "plan", planOrder: ["free"], expiresField: "a b"'))),
+        ("config: access.grace negativo", cfg(ms('planField: "plan", planOrder: ["free"], grace: -1'))),
+        ("config: access.grace mayor a 365", cfg(ms('planField: "plan", planOrder: ["free"], grace: 366'))),
+        ("config: access.grace decimal", cfg(ms('planField: "plan", planOrder: ["free"], grace: 1.5'))),
+        ("config: access.grace sin planField", cfg(ms("grace: 3"))),
+        ("config: access.statusField inválido", cfg(ms('statusField: "a b"'))),
+        ("config: access.blockedStatuses sin statusField", cfg(ms('blockedStatuses: ["banned"]'))),
+        ("config: access.blockedStatuses con valor inválido", cfg(ms('statusField: "status", blockedStatuses: ["Bad Status"]'))),
+        ("config: sessions no es un objeto", cfg("sessions: 5")),
+        ("config: sessions.collection con formato inválido", cfg('sessions: { enabled: true, collection: "mi coleccion" }')),
+        ("config: sessions.realtime no booleano", cfg('sessions: { enabled: true, realtime: "si" }')),
+        ("config: sessions con una opción desconocida", cfg("sessions: { enabled: true, duration: 5 }")),
+        ("config: mail no es un objeto", cfg("mail: 5")),
+        ("config: mail con una opción desconocida", cfg("mail: { maxPerDay: 5 }")),
+        ("config: mail.maxPerRecipientPerHour cero", cfg("mail: { maxPerRecipientPerHour: 0 }")),
+        ("config: mail.maxPerRecipientPerHour excesivo", cfg("mail: { maxPerRecipientPerHour: 100001 }")),
+        ("config: mail.maxPerRecipientPerHour decimal", cfg("mail: { maxPerRecipientPerHour: 2.5 }")),
+        ("config: mail.maxPerRecipientPerHour como texto", cfg('mail: { maxPerRecipientPerHour: "5" }')),
+        ("config: mail.maxPerHour excesivo", cfg("mail: { maxPerHour: 100001 }")),
+        ("config: mail.maxPerHour decimal", cfg("mail: { maxPerHour: 2.5 }")),
+        ("config: mail.maxPerHour como texto", cfg('mail: { maxPerHour: "50" }')),
     ]
 
 
@@ -850,7 +904,8 @@ def build(L, ctx, A):
         L.api(port, "PATCH", f"/api/collections/users/records/{uid}", dict(status="suspended"), ctx["TOKSU"]); time.sleep(0.5); publish("rt-bl")
         uid2, em2, t2 = mk_session_user(); (c2, _b) = connect(t2)
         L.api(port, "DELETE", f"/api/collections/users/records/{uid2}", None, ctx["TOKSU"]); time.sleep(0.5); publish("rt-del")
-        return c1.got("rt-bl") == 0 and c2.got("rt-del") == 0 and not [x for x in clients() if x["rid"] in (uid, uid2)], f"bloqueado: {c1.got('rt-bl')} eventos; usuario borrado: {c2.got('rt-del')} eventos"
+        left = L.api(port, "GET", "/api/collections/pbmini_sessions/records?perPage=5&filter=" + urllib_quote(f'rid = "{uid2}"'), None, ctx["TOKSU"])["totalItems"]
+        return c1.got("rt-bl") == 0 and c2.got("rt-del") == 0 and not [x for x in clients() if x["rid"] in (uid, uid2)] and left == 0, f"bloqueado: {c1.got('rt-bl')} eventos; usuario borrado: {c2.got('rt-del')} eventos; sesiones guardadas del borrado: {left} (esperaba 0: ip y user-agent son datos personales)"
     add("R", cat, "Bloquear o borrar al usuario corta su SSE", "0 eventos", run=rt_blocked_deleted)
 
     def rt_isolation(_):

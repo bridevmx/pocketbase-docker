@@ -376,7 +376,7 @@ Las pruebas de concurrencia S180/S181 mostraron fallos intermitentes de **conexi
 - *Mini App:* HMAC-SHA256 de `initData` en JS puro (`$security.hs256` no admite claves binarias; verificado contra `crypto` de Node), hash en tiempo constante, claves duplicadas/extra/rotas rechazadas, `auth_date` ≤ `maxAge` y no futura, `user.id` entero positivo y no bot, un solo uso por defecto, cuenta bloqueada → 403,
   token con `sid` (revocable: logout veta el token también en `/api/*`) y límite por IP.
 
-**Pruebas (laboratorio, sección `VY`):** contra un Telegram falso en 127.0.0.1 (nunca contacta con `api.telegram.org`); ≈70 casos más 27 de arranque inválido. Mutaciones del módulo en `mut10.py`: ver resultado en el informe de la ronda.
+**Pruebas (laboratorio, sección `VY`):** contra un Telegram falso en 127.0.0.1 (nunca contacta con `api.telegram.org`); ≈80 casos (incluidos los de `notify`) más 27 de arranque inválido. Mutaciones del módulo (`mut10.py`): 33 de 35 detectadas y TG15/TG30 añadidas después; TG02 y TG35 son equivalentes (el filtro `used = false` ya cubre lo que el `UPDATE` repite).
 
 **Medido o decidido al construirlo:** PocketBase lanza los crons en segundo plano (`POST /api/crons/{id}` devuelve antes de terminar); `created` (autodate) no se puede fijar por la API, por eso la purga usa fechas propias (`next_try`, `expires`);
 `$security.hs256` solo admite claves de texto; la Bot API no se contacta nunca en el laboratorio: la prueba real con un bot propio queda para `lab/real.py` (variables en `.env`).
@@ -406,3 +406,13 @@ Las pruebas de concurrencia S180/S181 mostraron fallos intermitentes de **conexi
 **Pruebas (sección `VP`):** 129 casos contra un Clip falso en 127.0.0.1 (valida el cuerpo igual de estricto que el oficial y imita la forma REAL medida del reembolso); más `unit_clip.js` (núcleo puro). Mutaciones: fase 2 (24/24), fase 3 (33/33), fase 4 (35/37 + 2 redundantes por diseño: el recibo repetido lo cubren el índice único y el filtro de estados finales), fase 5 (35/36 + 1 redundante por diseño: «solo se reembolsa un pago paid» lo cubre además el candado atómico `status = 'paid'`).
 
 **Límites que quedan:** un solo proceso (contadores, intervalos y candados en memoria); Clip ve monto, descripción y referencia; la ventana de conciliación (`windowHours`) no es comprobable en el laboratorio; sin reembolsos parciales/MSI/efectivo; el reembolso real solo se verificó con dinero real una vez (primeras 24 h = cancelación); no se probó el comportamiento de reintentos del webhook ni la latencia entre cobro y `GET`.
+
+---
+# Ronda 12: `notify` y auditoría de módulos contra PLUGINS.md
+
+**`notify`** (`pb_hooks/lib/notify.js`): fachada de envío independiente del canal. Controles: destino de forma exacta (`{ user } | { group } | { ops: true }`; ids/nombres validados, claves extra, `__proto__`, traversal y tipos erróneos rechazados), `"me"` solo en rutas autenticadas, no en GET ni rutas públicas, y error explícito si no hay canal (nada se pierde en silencio).
+**Pruebas:** `lab/unit_notify.js` (76 comprobaciones, sin PocketBase) + `notify_off` en la sección `VY`. **Mutaciones** (`mut15.py`): 14 de 14 detectadas.
+
+**Auditoría de `access`, `sessions` y `mail`:** un hueco real, corregido: al borrar un usuario `sessions` solo vetaba sus tokens y conservaba las filas con **ip y user-agent** (datos personales); ahora también las borra (`onUserDeleted`). La comprobación `VR006` exige 0 filas y **falla si se quita el `DELETE`** (mutación comprobada). Además se añadieron **44 casos de arranque inválido** (un defecto por opción de `access`, `sessions` y `mail`; casos `F…`), porque esas opciones no tenían una prueba fail-closed cada una.
+
+**Resultado:** suite completa en Windows 1427 casos (1419 correctos, 7 omitidos sin Node/symlinks, 1 flaky de tiempo ya corregido en la prueba); secciones `R`, `F` y `VY` repasadas después en Windows y Linux: 241/241 en ambas.

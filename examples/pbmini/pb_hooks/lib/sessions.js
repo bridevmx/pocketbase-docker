@@ -188,7 +188,10 @@ function onUserUpdated(e) {
   try { changed = e.record.original().tokenKey() !== e.record.tokenKey(); } catch (_) { changed = false; }
   if (changed) revokeAll($app, e.record.id);
 }
-function onUserDeleted(e) { revokeAll($app, e.record.id); }
+function onUserDeleted(e) { // se vetan sus tokens y se BORRAN sus filas (ip y user-agent son datos personales); sin cuenta, un token ya no valida aunque no estuviera vetado
+  revokeAll($app, e.record.id);
+  try { $app.db().newQuery(`DELETE FROM ${COLL} WHERE rid = {:r}`).bind({ r: e.record.id }).execute(); } catch (err) { $app.logger().error("pbmini sessions: no se pudieron borrar las sesiones del usuario eliminado", "error", String(err)); }
+}
 
 function gc(app) { // sesiones vencidas (su token ya no vale) y vetos en memoria caducados
   if (!cfg().enabled) return;
