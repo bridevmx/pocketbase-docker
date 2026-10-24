@@ -974,7 +974,7 @@ def build(L, ctx, A):
         if row(pid)["status"] != "paid" or row(rid)["status"] != "review": return False, f"preparación: {row(pid)['status']} / {row(rid)['status']}"
         kc = "SPIN-" + str(int(time.time() * 1000))[-11:] + "CLICHECK"
         f.add(kc, fecha=mxdate(), emisor="40638", receptor="40012", cuenta=BBVA, monto=300.0, status="Liquidado", account=BBVA, processed=bxtime(1), received=bxtime(1))
-        S["pb"].stop(); root, full = S["root"], S["env"]; n0 = len(f.posts())
+        S["pb"].stop(); root, full = S["root"], S["env"]
         def cli(*a):
             r = sp.run([EXE, "pbmini:spei", *a, f"--dir={root}/pb_data", f"--hooksDir={root}/pb_hooks", f"--publicDir={root}/pb_public"], capture_output=True, text=True, timeout=90, cwd=root, env=dict(os.environ, **full), encoding="utf-8", errors="replace")
             return r.returncode, r.stdout + r.stderr
@@ -999,6 +999,7 @@ def build(L, ctx, A):
             rc, o = cli("review", fid, "failed", "confirm")
             if rc != 0: bad.append(f"review failed confirm: rc={rc} {o[-160:]!r}")
             if cli("purge", "dry")[0] != 0 or cli("reconcile")[0] not in (0, 1): bad.append("purge dry y reconcile deben funcionar")
+            n0 = len(f.posts())   # solo se cuentan las consultas de `check` (el `reconcile` anterior procesa las órdenes pendientes de otras pruebas)
             rc, o = cli("check", kc, "40638", "300"); ch = jout(o)
             if rc != 0 or ch.get("encontrada") is not True or ch.get("estado") != "Liquidado" or BBVA in o: bad.append(f"check de una transferencia existente: rc={rc} {o[-220:]!r}")
             if cli("check", kc.lower(), "40638", "300")[0] == 0: bad.append("check con la clave en minúsculas debe decir «no encontrada» (Banxico busca exacto)")
