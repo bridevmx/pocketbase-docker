@@ -3,6 +3,8 @@
   python real.py check [--send]   comprueba contra la API REAL de Telegram: getMe, getWebhookInfo y (con --send) un mensaje de prueba a TELEGRAM_TEST_CHAT
   python real.py relay            (sin túnel) consulta getUpdates a Telegram y reenvía cada actualización al webhook LOCAL con el secret; para probar /start y botones reales desde tu móvil
   python real.py demo             (con `serve` en marcha) simula un evento de TU app: crea un pedido de la cuenta vinculada y cambia su estado => llega el aviso con botón a tu Telegram
+  python real.py speiserve        servidor de pruebas con el módulo `spei` ACTIVADO contra Banxico REAL (y el enrutador de visión si OMNIROUTER_* está en .env); abre la pantalla en http://<PB_HTTP>/spei.html. Ctrl+C para parar
+  python real.py speistatus <id>  (con `speiserve` en marcha) estado completo de una orden (incluye lo que respondió Banxico y la nota interna)
   python real.py clipserve        servidor de pruebas con el módulo `clip` ACTIVADO y un túnel cloudflared (la URL pública se lee sola); Ctrl+C para parar
   python real.py clipdemo         (con `clipserve` en marcha) crea un usuario y un pago REAL de CLIP_TEST_AMOUNT pesos, imprime el link y vigila hasta que se confirme
   python real.py clipstatus <id>  estado de un pago;  python real.py cliprefund <id> [--confirm]  reembolso total (MUEVE DINERO: sin --confirm solo simula; lo ejecuta una persona)
@@ -213,10 +215,73 @@ def cliprefund():
     st, d = call("POST", "/clip/op", su, {"op": "refund", "id": pid})
     print(f"respuesta {st}: {red(json.dumps(d, ensure_ascii=False))[:500]}")
 
+SPEI_PAGES = {
+    "spei/order.js": 'module.exports = { auth: "user", body: { bank: { type: "string", max: 5 } }, post: (ctx) => ctx.json(ctx.spei.createOrder(Object.assign({ amount: __AMOUNT__, description: "Prueba SPEI pbmini", subject: { kind: "demo", id: "t" + Date.now() } }, ctx.body.bank ? { customerBank: ctx.body.bank } : {}))) };',
+    "spei/report.js": 'module.exports = { auth: "user", body: { id: { type: "string", max: 40, required: true }, tracking: { type: "string", max: 60, required: true }, bank: { type: "string", max: 5 }, date: { type: "string", max: 10 } }, post: (ctx) => ctx.json(ctx.spei.report(ctx.body.id, Object.assign({ tracking: ctx.body.tracking }, ctx.body.bank ? { emisor: ctx.body.bank } : {}, ctx.body.date ? { date: ctx.body.date } : {}))) };',
+    "spei/auto.js": 'module.exports = { auth: "user", body: { id: { type: "string", max: 40, required: true }, image: { type: "string", max: 6000000, required: true } }, post: (ctx) => ctx.json(ctx.spei.reportFromReceipt(ctx.body.id, ctx.body.image)) };',
+    "spei/get.js": 'module.exports = { auth: "user", query: { id: { type: "string", max: 40, required: true } }, get: (ctx) => ctx.json(ctx.spei.get(ctx.query.id)) };',
+}
+
+def speiserve():
+    import secrets
+    need("PB_SUPERUSER_PASSWORD"); exe = L.provision(None); h, port = host()
+    acc = os.path.join(L.ROOT, "pb_hooks", "spei.accounts.json")
+    if not os.path.isfile(acc): sys.exit("falta examples/pbmini/pb_hooks/spei.accounts.json (copia spei.accounts.example.json y pon tus cuentas; el archivo está en .gitignore)")
+    google = all(E.get(k) for k in ("GOOGLE_AI_API_KEY", "GOOGLE_AI_MODEL")); omni = all(E.get(k) for k in ("OMNIROUTER_URL", "OMNIROUTER_API_KEY", "OMNIROUTER_MODEL")); vision = google or omni
+    cents = int(round(float(E.get("SPEI_TEST_AMOUNT") or "1") * 100))
+    root = os.path.join(L.RUN, "realspei"); pg = root + "-pages"; shutil.rmtree(pg, ignore_errors=True); os.makedirs(pg)
+    for rel, txt in SPEI_PAGES.items():
+        fp = os.path.join(pg, rel); os.makedirs(os.path.dirname(fp), exist_ok=True); open(fp, "w", newline="\n", encoding="utf-8").write(txt.replace("__AMOUNT__", str(cents)))
+    raw = open(os.path.join(L.ROOT, "pb_hooks", "lib", "spei_banks.js"), encoding="utf-8").read()
+    banks = re.search(r'RAW = "(.*?)";', raw).group(1).split(";")
+    opts = "".join(f'<option value="{b.split("|")[0]}">{b.split("|", 1)[1]}</option>' for b in banks if b.split("|")[0] not in ("2001", "90901", "90902", "90903"))
+    email, pw = "spei@real.test", secrets.token_urlsafe(12) + "Aa1!"
+    ui = open(os.path.join(L.HERE, "spei_ui.html"), encoding="utf-8").read().replace("__BANKS__", opts).replace("__EMAIL__", email).replace("__PASS__", pw)
+    cfg = 'module.exports = { ai: { enabled: %s, timeoutSeconds: 60 }, spei: { enabled: true, amount: { min: 1 }, vision: { enabled: %s, provider: "%s", perUserPerMin: 10, maxPerOrder: 10 } } };' % ("true" if google else "false", "true" if vision else "false", "google" if google else "omnirouter")
+    L.build_sandbox(root, pg, symlinks=False, clean=True, public={"spei.html": ui}, hooks_extra={"pbmini.config.js": cfg, "spei.accounts.json": open(acc, encoding="utf-8").read()})
+    env = dict(os.environ, **{k: v for k, v in E.items() if v != ""}); env.setdefault("PBMINI_PUBLIC_AUDIT", "warn")
+    subprocess.run([exe, "superuser", "upsert", E.get("PB_SUPERUSER_EMAIL", "admin@real.test"), E["PB_SUPERUSER_PASSWORD"], f"--dir={root}/pb_data"], capture_output=True, cwd=root, env=env)
+    proc = subprocess.Popen([exe, "serve", f"--http={h}:{port}", f"--dir={root}/pb_data", f"--publicDir={root}/pb_public", f"--hooksDir={root}/pb_hooks", "--indexFallback=false"], cwd=root, env=env)
+    try:
+        end = time.time() + 30
+        while time.time() < end:
+            try:
+                c = http.client.HTTPConnection(h, port, timeout=3); c.request("GET", "/api/health");
+                if c.getresponse().status == 200: break
+            except Exception: time.sleep(0.5)
+        else: sys.exit("el servidor no arrancó (revisa el mensaje de arriba: cuentas, OMNIROUTER_* o SPEI_BANXICO_URL)")
+        call, su = _speiapi()
+        call("POST", "/api/collections/users/records", su, {"email": email, "password": pw, "passwordConfirm": pw, "verified": True})
+        print(f"servidor con SPEI en http://{h}:{port}  ·  pantalla: http://{h}:{port}/spei.html  ·  monto de la prueba: ${cents / 100:.2f}  ·  lector de comprobantes: {('ACTIVADO con Google AI (' + E['GOOGLE_AI_MODEL'] + (' + respaldo ' + E['GOOGLE_AI_FALLBACK_MODEL'] if E.get('GOOGLE_AI_FALLBACK_MODEL') else '') + ')') if google else 'ACTIVADO con omnirouter' if vision else 'apagado (faltan GOOGLE_AI_* u OMNIROUTER_*)'}  ·  Banxico: {E.get('SPEI_BANXICO_URL') or 'real'}", flush=True)
+        print("Ctrl+C para detener", flush=True)
+        proc.wait()
+    finally:
+        if proc.poll() is None: proc.terminate()
+
+def _speiapi():
+    need("PB_SUPERUSER_PASSWORD"); h, port = host()
+    def call(m, p, tok=None, body=None):
+        c = http.client.HTTPConnection(h, port, timeout=60); hh = {"Content-Type": "application/json"}
+        if tok: hh["Authorization"] = tok
+        c.request(m, p, json.dumps(body) if body is not None else None, hh); r = c.getresponse(); d = r.read().decode("utf-8", "replace")
+        try: return r.status, json.loads(d)
+        except Exception: return r.status, {"raw": d[:200]}
+    st, d = call("POST", "/api/collections/_superusers/auth-with-password", body={"identity": E.get("PB_SUPERUSER_EMAIL", "admin@real.test"), "password": E["PB_SUPERUSER_PASSWORD"]})
+    if st != 200: sys.exit("no se pudo iniciar sesión como superusuario (¿está `speiserve` en marcha?)")
+    return call, d["token"]
+
+def speistatus():
+    call, su = _speiapi(); oid = sys.argv[2]
+    st, r = call("GET", f"/api/collections/pbmini_spei_payments/records/{oid}", su)
+    keys = ("id", "status", "amount", "account_label", "account_bank", "customer_bank", "emisor", "tracking", "last_tracking", "pay_date", "reports", "tries", "next_try", "bx_status", "bx_amount", "bx_processed", "bx_account_tail", "note", "paid_at", "expires_at")
+    print(json.dumps({k: r.get(k) for k in keys}, ensure_ascii=False, indent=1))
+
 if __name__ == "__main__":
     cmd = sys.argv[1] if len(sys.argv) > 1 else ""
     if cmd == "serve": serve()
     elif cmd == "check": check("--send" in sys.argv)
+    elif cmd == "speiserve": speiserve()
+    elif cmd == "speistatus": speistatus()
     elif cmd == "clipserve": clipserve()
     elif cmd == "clipdemo": clipdemo()
     elif cmd == "clipstatus": clipstatus()

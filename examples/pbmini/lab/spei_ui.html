@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pago por transferencia SPEI (prueba)</title>
+<style>
+  :root { --bg:#f7f7f5; --fg:#1d1d1b; --mut:#6b6b66; --card:#fff; --bd:#dcdcd6; --ac:#0b6b4f; --bad:#a32020; --warn:#8a5a00; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#161614; --fg:#ecece8; --mut:#9a9a93; --card:#21211f; --bd:#383834; --ac:#4cc79b; --bad:#ff8a8a; --warn:#f0c060; } }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.5 system-ui, sans-serif; }
+  main { max-width: 640px; margin: 0 auto; padding: 24px 16px 64px; }
+  h1 { font-size: 1.35rem; margin: 0 0 4px; } .sub { color: var(--mut); margin: 0 0 20px; }
+  section { background: var(--card); border: 1px solid var(--bd); border-radius: 10px; padding: 16px; margin: 0 0 16px; }
+  h2 { font-size: 1rem; margin: 0 0 10px; }
+  label { display:block; font-size: .85rem; color: var(--mut); margin: 10px 0 4px; }
+  select, input[type=text], input[type=file] { width:100%; padding:10px; border:1px solid var(--bd); border-radius:8px; background:transparent; color:inherit; font:inherit; }
+  button { margin-top: 12px; padding: 10px 16px; border: 0; border-radius: 8px; background: var(--ac); color: #fff; font: inherit; font-weight: 600; cursor: pointer; }
+  button[disabled] { opacity: .5; cursor: default; } button.alt { background: transparent; color: var(--ac); border: 1px solid var(--ac); }
+  .acc { font-family: ui-monospace, monospace; font-size: 1.15rem; word-break: break-all; margin: 4px 0; }
+  .row { display:flex; gap: 8px; align-items:center; flex-wrap: wrap; }
+  .pill { display:inline-block; padding: 2px 10px; border-radius: 99px; border: 1px solid var(--bd); font-size: .85rem; }
+  .ok { color: var(--ac); } .bad { color: var(--bad); } .warn { color: var(--warn); }
+  pre { white-space: pre-wrap; word-break: break-word; background: transparent; border: 1px dashed var(--bd); border-radius: 8px; padding: 10px; font-size: .8rem; max-height: 260px; overflow: auto; }
+  .hide { display: none; } small { color: var(--mut); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Pagar por transferencia SPEI</h1>
+  <p class="sub">Pantalla de prueba del módulo <code>spei</code> de pbmini. Usuario de prueba local; no es la interfaz final de ningún proyecto.</p>
+
+  <section id="s1">
+    <h2>1. ¿Desde qué banco vas a pagar?</h2>
+    <label for="bank">Tu banco (así te damos una cuenta de otro banco: SPEI solo deja comprobante entre bancos distintos)</label>
+    <select id="bank"><option value="">No sé / prefiero no decirlo</option>__BANKS__</select>
+    <button id="create">Crear orden</button>
+  </section>
+
+  <section id="s2" class="hide">
+    <h2>2. Transfiere exactamente <span id="amt"></span></h2>
+    <div class="acc" id="accnum"></div>
+    <div id="acchold"></div>
+    <div class="row"><button class="alt" id="copy">Copiar cuenta</button><span id="exp" class="pill"></span><span id="st" class="pill"></span></div>
+    <p id="same" class="warn hide">Tu banco es el mismo que el de la cuenta: SPEI no genera comprobante en Banxico entre cuentas del mismo banco, así que este pago se revisará a mano.</p>
+  </section>
+
+  <section id="s3" class="hide">
+    <h2>3. Reporta tu pago</h2>
+    <label for="img">Captura o foto del comprobante (PNG, JPEG o WebP, máximo 4 MB). Se lee con un modelo de visión y no se guarda.</label>
+    <input type="file" id="img" accept="image/png,image/jpeg,image/webp">
+    <button id="auto">Leer comprobante y reportar</button>
+    <p class="sub" style="margin-top:14px">…o escribe los datos a mano:</p>
+    <label for="trk">Clave de rastreo</label><input type="text" id="trk" autocomplete="off" maxlength="40" placeholder="p. ej. MBAN01002610230080500083">
+    <label for="rbank">Banco desde el que pagaste</label><select id="rbank"><option value="">(según la clave o el banco que elegiste)</option>__BANKS__</select>
+    <label for="rdate">Fecha (dd-mm-aaaa, opcional)</label><input type="text" id="rdate" autocomplete="off" maxlength="10" placeholder="hoy si lo dejas vacío">
+    <button id="send">Reportar con estos datos</button>
+  </section>
+
+  <section id="s4" class="hide">
+    <h2>Estado</h2>
+    <div id="status" class="pill">—</div> <small id="msg"></small>
+    <pre id="out"></pre>
+  </section>
+</main>
+<script>
+(function () {
+  var EMAIL = "__EMAIL__", PASS = "__PASS__", $ = function (i) { return document.getElementById(i); };
+  var token = "", order = null, timer = null;
+  function show(id, on) { $(id).classList[on ? "remove" : "add"]("hide"); }
+  function peso(c) { return "$" + (c / 100).toFixed(2) + " MXN"; }
+  function log(o) { $("out").textContent = JSON.stringify(o, null, 2); show("s4", true); }
+  function api(path, body, get) {
+    var o = { method: get ? "GET" : "POST", headers: { "Authorization": token } };
+    if (!get) { o.headers["Content-Type"] = "application/json"; var b = {}; Object.keys(body || {}).forEach(function (k) { if (body[k] !== "") b[k] = body[k]; }); o.body = JSON.stringify(b); } // las rutas rechazan campos vacíos
+    return fetch(path, o).then(function (r) { return r.text().then(function (t) { var j; try { j = JSON.parse(t); } catch (e) { j = { raw: t.slice(0, 300) }; } j.__http = r.status; return j; }); });
+  }
+  function login() {
+    return fetch("/api/collections/users/auth-with-password", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ identity: EMAIL, password: PASS }) })
+      .then(function (r) { return r.json(); }).then(function (j) { token = j.token || ""; if (!token) throw new Error("no se pudo iniciar sesión de prueba"); });
+  }
+  function paint(o) {
+    if (!o || !o.status) return;
+    order = Object.assign(order || {}, o);
+    var s = o.status, cls = s === "paid" ? "ok" : (s === "review" || s === "expired" || s === "failed") ? "bad" : "warn";
+    $("status").className = "pill " + cls; $("status").textContent = s; $("st").textContent = s;
+    $("msg").textContent = { awaiting: "esperando tu reporte", checking: "verificando con Banxico…", paid: "¡pago confirmado por Banxico!", review: "pasó a revisión manual", expired: "la orden venció", failed: "pago rechazado" }[s] || "";
+    show("s4", true);
+    if (s === "paid" || s === "review" || s === "expired" || s === "failed") { clearInterval(timer); timer = null; }
+  }
+  function poll() { if (timer || !order) return; timer = setInterval(function () { api("/spei/get?id=" + order.id, null, true).then(function (j) { if (j.status) { paint(j); log(j); } }); }, 4000); }
+  $("create").onclick = function () {
+    $("create").disabled = true;
+    login().then(function () { return api("/spei/order", { bank: $("bank").value }); }).then(function (j) {
+      log(j); if (!j.id) { $("create").disabled = false; return; }
+      order = j; $("amt").textContent = peso(j.amount); $("accnum").textContent = j.account.number; $("acchold").textContent = j.account.label + " · " + j.account.holder;
+      $("exp").textContent = "vence " + String(j.expiresAt).slice(0, 16); show("same", !!j.manualReview); show("s2", true); show("s3", true); paint(j);
+    }).catch(function (e) { $("create").disabled = false; log({ error: String(e) }); });
+  };
+  $("copy").onclick = function () { navigator.clipboard && navigator.clipboard.writeText(order.account.number); };
+  $("send").onclick = function () {
+    $("send").disabled = true;
+    api("/spei/report", { id: order.id, tracking: $("trk").value.trim(), bank: $("rbank").value || $("bank").value, date: $("rdate").value.trim() }).then(function (j) { $("send").disabled = false; log(j); paint(j); poll(); });
+  };
+  $("auto").onclick = function () {
+    var f = $("img").files[0]; if (!f) { log({ error: "elige una imagen" }); return; }
+    if (f.size > 4 * 1024 * 1024) { log({ error: "la imagen supera 4 MB" }); return; }
+    $("auto").disabled = true;
+    var rd = new FileReader();
+    rd.onload = function () {
+      var b64 = String(rd.result).split(",")[1] || "";
+      api("/spei/auto", { id: order.id, image: b64 }).then(function (j) {
+        $("auto").disabled = false; log(j);
+        if (j.order) paint(j.order);
+        if (j.reading) { if (j.reading.tracking) $("trk").value = j.reading.tracking; if (j.reading.emisor) $("rbank").value = j.reading.emisor; if (j.reading.date) $("rdate").value = j.reading.date; }
+        if (j.auto) poll(); else if (j.warnings) $("msg").textContent = "Revisa los datos leídos (" + j.warnings.join(", ") + ") y pulsa «Reportar con estos datos».";
+      });
+    };
+    rd.readAsDataURL(f);
+  };
+})();
+</script>
+</body>
+</html>

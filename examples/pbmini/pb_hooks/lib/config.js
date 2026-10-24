@@ -1,5 +1,5 @@
 // Configuración opcional: pb_hooks/pbmini.config.js. Todo apagado por defecto; sin el archivo nada cambia respecto a un proyecto sin estos módulos.
-//   module.exports = { access: {...}, sessions: {...}, mail: {...}, telegram: {...}, clip: {...} }
+//   module.exports = { access: {...}, sessions: {...}, mail: {...}, telegram: {...}, clip: {...}, spei: {...} }
 // Claves desconocidas, tipos incorrectos o valores fuera de rango abortan el arranque (una opción ignorada podría desactivar un control).
 const NAME = /^[a-z0-9][a-z0-9_.:-]{0,63}$/;
 const FIELD = /^[A-Za-z_][A-Za-z0-9_]{0,63}$/;
@@ -147,6 +147,49 @@ function normalizeClip(c) {
   out.readRules = bool(c.readRules, false, "clip.readRules");
   return out;
 }
+function normalizeSpei(c) {
+  if (!isObj(c)) fail("spei debe ser un objeto");
+  only(c, ["enabled", "collection", "accountsFile", "amount", "orderTtlHours", "report", "banxico", "reconcile", "vision", "retention", "readRules", "uniqueCents"], "spei");
+  if (typeof c.enabled !== "boolean") fail("spei.enabled debe ser true o false");
+  if (!c.enabled) return { enabled: false };
+  const sub = (v, keys, where) => { const o = v === undefined ? {} : v; if (!isObj(o)) fail(`${where} debe ser un objeto`); only(o, keys, where); return o; };
+  const num = (v, def, lo, hi, where) => { const x = v === undefined ? def : v; if (!Number.isInteger(x) || x < lo || x > hi) fail(`${where} debe ser un entero ${lo}..${hi}`); return x; };
+  const bool = (v, def, where) => { const x = v === undefined ? def : v; if (typeof x !== "boolean") fail(`${where} debe ser true o false`); return x; };
+  const out = { enabled: true, collection: c.collection === undefined ? "users" : c.collection };
+  if (typeof out.collection !== "string" || !COLL.test(out.collection) || out.collection.charAt(0) === "_") fail("spei.collection debe ser una colección de autenticación de usuario (no de sistema)");
+  out.accountsFile = c.accountsFile === undefined ? "spei.accounts.json" : c.accountsFile;
+  if (typeof out.accountsFile !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}\.json$/.test(out.accountsFile)) fail("spei.accountsFile debe ser un nombre de archivo .json dentro de pb_hooks (sin rutas)");
+  const am = sub(c.amount, ["min", "max"], "spei.amount");
+  out.amount = { min: num(am.min, 100, 1, 100000000, "spei.amount.min (centavos)"), max: num(am.max, 5000000, 1, 100000000, "spei.amount.max (centavos)") };
+  if (out.amount.min > out.amount.max) fail("spei.amount.min no puede superar a spei.amount.max");
+  out.orderTtlHours = num(c.orderTtlHours, 24, 1, 168, "spei.orderTtlHours");
+  const rp = sub(c.report, ["perUserPerMin", "maxReportsPerOrder", "maxPendingPerUser"], "spei.report");
+  out.report = { perUserPerMin: num(rp.perUserPerMin, 6, 1, 1000, "spei.report.perUserPerMin"), maxReportsPerOrder: num(rp.maxReportsPerOrder, 5, 1, 20, "spei.report.maxReportsPerOrder"), maxPendingPerUser: num(rp.maxPendingPerUser, 10, 1, 100, "spei.report.maxPendingPerUser") };
+  const bx = sub(c.banxico, ["timeoutSeconds", "minIntervalMs", "perMinute"], "spei.banxico");
+  out.banxico = { timeoutSeconds: num(bx.timeoutSeconds, 15, 1, 30, "spei.banxico.timeoutSeconds"), minIntervalMs: num(bx.minIntervalMs, 3000, 500, 60000, "spei.banxico.minIntervalMs"), perMinute: num(bx.perMinute, 20, 1, 600, "spei.banxico.perMinute") };
+  const rc = sub(c.reconcile, ["cron", "batch", "maxTries", "retryMinutes"], "spei.reconcile");
+  out.reconcile = { cron: rc.cron === undefined ? "*/3 * * * *" : rc.cron, batch: num(rc.batch, 20, 1, 200, "spei.reconcile.batch"), maxTries: num(rc.maxTries, 10, 1, 100, "spei.reconcile.maxTries"), retryMinutes: num(rc.retryMinutes, 5, 1, 1440, "spei.reconcile.retryMinutes") };
+  if (!require(`${__hooks}/lib/cron.js`).valid(out.reconcile.cron)) fail('spei.reconcile.cron inválido (5 campos "m h dom mon dow" o un macro como @hourly)');
+  const vs = sub(c.vision, ["enabled", "provider", "maxKB", "timeoutSeconds", "perUserPerMin", "maxPerOrder", "minConfidence"], "spei.vision");
+  if (vs.provider !== undefined && ["omnirouter", "google"].indexOf(vs.provider) < 0) fail('spei.vision.provider debe ser "omnirouter" o "google" (el plugin ai)');
+  out.vision = { enabled: bool(vs.enabled, false, "spei.vision.enabled"), provider: vs.provider === undefined ? "omnirouter" : vs.provider, maxKB: num(vs.maxKB, 4096, 64, 8192, "spei.vision.maxKB"), timeoutSeconds: num(vs.timeoutSeconds, 25, 5, 60, "spei.vision.timeoutSeconds"),
+    perUserPerMin: num(vs.perUserPerMin, 4, 1, 100, "spei.vision.perUserPerMin"), maxPerOrder: num(vs.maxPerOrder, 5, 1, 200, "spei.vision.maxPerOrder"), minConfidence: num(vs.minConfidence, 50, 1, 100, "spei.vision.minConfidence (porcentaje)") };
+  const rt = sub(c.retention, ["failedDays", "paidDays"], "spei.retention");
+  out.retention = { failedDays: num(rt.failedDays, 90, 1, 3650, "spei.retention.failedDays"), paidDays: num(rt.paidDays, 0, 0, 3650, "spei.retention.paidDays (0 = conservar)") };
+  out.readRules = bool(c.readRules, false, "spei.readRules");
+  const uc = sub(c.uniqueCents, ["enabled", "max"], "spei.uniqueCents"); // centavos únicos por orden (p. ej. $300.37): dos órdenes abiertas de una cuenta nunca tienen el mismo monto
+  out.uniqueCents = { enabled: bool(uc.enabled, false, "spei.uniqueCents.enabled"), max: num(uc.max, 99, 1, 99, "spei.uniqueCents.max") };
+  return out;
+}
+function normalizeAi(c) {
+  if (!isObj(c)) fail("ai debe ser un objeto");
+  only(c, ["enabled", "timeoutSeconds", "perMinute", "perUserPerMin", "maxOutputTokens", "maxInputChars", "maxImageKB"], "ai");
+  if (typeof c.enabled !== "boolean") fail("ai.enabled debe ser true o false");
+  if (!c.enabled) return { enabled: false };
+  const num = (v, def, lo, hi, where) => { const x = v === undefined ? def : v; if (!Number.isInteger(x) || x < lo || x > hi) fail(`${where} debe ser un entero ${lo}..${hi}`); return x; };
+  return { enabled: true, timeoutSeconds: num(c.timeoutSeconds, 45, 5, 120, "ai.timeoutSeconds (por modelo)"), perMinute: num(c.perMinute, 30, 1, 600, "ai.perMinute"), perUserPerMin: num(c.perUserPerMin, 6, 1, 100, "ai.perUserPerMin"),
+    maxOutputTokens: num(c.maxOutputTokens, 2048, 256, 8192, "ai.maxOutputTokens"), maxInputChars: num(c.maxInputChars, 6000, 1, 20000, "ai.maxInputChars"), maxImageKB: num(c.maxImageKB, 4096, 64, 8192, "ai.maxImageKB") };
+}
 function normalizeMail(m) {
   if (!isObj(m)) fail("mail debe ser un objeto");
   only(m, ["maxPerRecipientPerHour", "maxPerHour"], "mail");
@@ -161,13 +204,15 @@ function load() {
   const f = `${__hooks}/pbmini.config.js`;
   const raw = exists(f) ? require(f) : {};
   if (!isObj(raw)) fail("pbmini.config.js debe exportar un objeto");
-  only(raw, ["access", "sessions", "mail", "telegram", "clip"], "pbmini.config.js");
+  only(raw, ["access", "sessions", "mail", "telegram", "clip", "spei", "ai"], "pbmini.config.js");
   return (_cfg = {
     access: normalizeAccess(raw.access === undefined ? { enabled: false } : raw.access),
     sessions: normalizeSessions(raw.sessions === undefined ? { enabled: false } : raw.sessions),
     mail: normalizeMail(raw.mail === undefined ? {} : raw.mail),
     telegram: normalizeTelegram(raw.telegram === undefined ? { enabled: false } : raw.telegram),
     clip: normalizeClip(raw.clip === undefined ? { enabled: false } : raw.clip),
+    spei: normalizeSpei(raw.spei === undefined ? { enabled: false } : raw.spei),
+    ai: normalizeAi(raw.ai === undefined ? { enabled: false } : raw.ai),
   });
 }
 module.exports = { load };

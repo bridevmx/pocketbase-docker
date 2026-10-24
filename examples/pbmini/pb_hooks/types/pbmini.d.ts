@@ -103,6 +103,26 @@ export interface Ctx {
   telegramLink(): { url: string; expires: string };
   /** Envío simple a los canales habilitados (hoy Telegram). { user: "me" } = usuario autenticado. No en GET ni en rutas públicas. */
   notify(to: NotifyTarget, msg: string | TelegramMessage, opt?: { key?: string }): { telegram?: any };
+  /** Consultas rápidas de UNA vuelta a Google AI Studio (Gemini/Gemma, capa gratuita). No es un chat. No en GET ni en rutas públicas; requiere usuario autenticado. */
+  ai: {
+    /** Extrae campos tipados de un texto o imagen. Cada campo se valida (null si falta o es inválido); lo no declarado se descarta. 502 si fallan el modelo principal y el de respaldo. */
+    extract(opts: { instruction: string; fields: { [name: string]: AiField }; text?: string; image?: { mime: "image/png" | "image/jpeg" | "image/webp"; base64: string } }): { values: { [name: string]: string | number | boolean | null }; model: string };
+    /** Texto libre del modelo (DATO NO CONFIABLE: valídalo). */
+    ask(opts: { instruction: string; text?: string; image?: { mime: "image/png" | "image/jpeg" | "image/webp"; base64: string } }): { text: string; model: string };
+  };
+  /** Pagos por transferencia SPEI validados contra el CEP de Banxico (módulo opcional). No en GET ni en rutas públicas; requiere sesión de la colección de usuarios. */
+  spei: {
+    /** Crea la orden con la cuenta ASIGNADA (de otro banco que el del cliente si es posible). `amount` en CENTAVOS enteros calculados en el SERVIDOR; el cliente nunca elige la cuenta. */
+    createOrder(opts: { amount: number; description: string; subject: { kind: string; id: string }; customerBank?: string; idemKey?: string }): SpeiOrder & { manualReview: boolean };
+    /** El cliente reporta su transferencia. Idempotente. Banxico decide: solo se paga con cuenta, monto exacto, fecha posterior a la orden y clave sin usar; cualquier anomalía va a `review`. */
+    report(id: string, input: { tracking: string; emisor?: string; date?: string }): SpeiOrder;
+    /** Lee un comprobante (PNG/JPEG/WebP en base64) con el modelo de visión y devuelve lo leído sin cambiar la orden. La imagen no se guarda. */
+    readReceipt(id: string, imageBase64: string): { reading: { tracking: string | null; amountCents: number | null; date: string | null; emisor: string | null; bankName: string | null; confidence: number }; warnings: string[]; input: { tracking: string; emisor: string; date?: string } | null; ready: boolean };
+    /** Lee el comprobante y, solo si todo es legible y el monto coincide, lo reporta. Si no, devuelve lo leído para que el cliente lo complete. */
+    reportFromReceipt(id: string, imageBase64: string): { auto: boolean; reading: any; warnings: string[]; order: SpeiOrder };
+    get(id: string): SpeiOrder;
+    list(query: { subjectKind: string; subjectId: string }): SpeiOrder[];
+  };
   /** Pagos con links de Clip (módulo opcional). No en GET ni en rutas públicas; requiere sesión de la colección de usuarios. */
   clip: {
     /** Crea el pago y el link en Clip. `amount` en CENTAVOS enteros calculados en el SERVIDOR (nunca del cliente); `urls` solo rutas relativas; `idemKey` repite el mismo pago. */
@@ -117,6 +137,10 @@ export interface Ctx {
     refund(id: string): { status: ClipStatus; changed: boolean; payment?: ClipPaymentView };
   };
 }
+
+export interface AiField { type: "string" | "number" | "boolean" | "enum"; desc: string; max?: number; min?: number; values?: string[] }
+export type SpeiStatus = "awaiting" | "checking" | "paid" | "review" | "failed" | "expired";
+export interface SpeiOrder { id: string; status: SpeiStatus; amount: number; baseAmount: number; currency: "MXN"; description: string; subject: { kind: string; id: string }; account: { number: string; kind: "clabe" | "card"; holder: string; label: string; bankCode: string } | null; reports: number; expiresAt: string; paidAt: string; created: string }
 
 export interface ClipPaymentOptions { amount: number; description: string; subject: { kind: string; id: string }; urls: { success: string; error: string; default: string }; idemKey?: string }
 export type ClipStatus = "created" | "pending" | "paid" | "failed" | "expired" | "review" | "refunded";
@@ -169,6 +193,11 @@ export interface Config {
     groups?: { [name: string]: { field: string; values: string[] } };
     limits?: { perChatPerMinute?: number; perHour?: number; perUserPerHour?: number };
     retention?: { sentDays?: number; linksDays?: number } };
+  ai?: { enabled: boolean; timeoutSeconds?: number; perMinute?: number; perUserPerMin?: number; maxOutputTokens?: number; maxInputChars?: number; maxImageKB?: number };
+  spei?: { enabled: boolean; collection?: string; accountsFile?: string; amount?: { min?: number; max?: number }; orderTtlHours?: number; report?: { perUserPerMin?: number; maxReportsPerOrder?: number; maxPendingPerUser?: number };
+    banxico?: { timeoutSeconds?: number; minIntervalMs?: number; perMinute?: number }; reconcile?: { cron?: string; batch?: number; maxTries?: number; retryMinutes?: number };
+    vision?: { enabled?: boolean; provider?: "omnirouter" | "google"; maxKB?: number; timeoutSeconds?: number; perUserPerMin?: number; maxPerOrder?: number; minConfidence?: number };
+    retention?: { failedDays?: number; paidDays?: number }; readRules?: boolean; uniqueCents?: { enabled?: boolean; max?: number } };
   clip?: { enabled: boolean; collection?: string; publicUrl?: string; referencePrefix?: string; methods?: ("credit" | "debit" | "cash")[]; openOnCardForm?: boolean;
     amount?: { min?: number; max?: number }; descriptionMax?: number; timeoutSeconds?: number; expiresInMinutes?: number | null; installmentsMsi?: number[] | null; international?: boolean;
     webhook?: { path?: string; maxBytes?: number; perIpPerMin?: number }; create?: { perUserPerMin?: number; maxPendingPerUser?: number }; verify?: { minIntervalMs?: number; perUserPerMin?: number };

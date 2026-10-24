@@ -734,8 +734,8 @@ def build(L, ctx, A):
         for _i in range(8): verify_api(tok, pid)
         allowed = 1 + int((time.time() - t0) / 0.5)   # bajo carga las 8 llamadas pueden cruzar una ventana de 500 ms: se permite una consulta más por ventana transcurrida
         if len(f.gets(cid)) > allowed or len(f.gets(cid)) < 1: bad.append(f"8 verificaciones seguidas => {len(f.gets(cid))} consultas a Clip (esperaba 1, máx. {allowed} por el tiempo transcurrido)")
-        settle(); verify_api(tok, pid)
-        if len(f.gets(cid)) < allowed + 1: bad.append("pasado el intervalo debe volver a consultar")
+        n1 = len(f.gets(cid)); settle(); verify_api(tok, pid)
+        if len(f.gets(cid)) <= n1: bad.append("pasado el intervalo debe volver a consultar")
         f.clear(); end = time.time() + 2.4; n = 0
         while time.time() < end: verify_api(tok, pid); n += 1; time.sleep(0.05)
         g = len(f.gets(cid))

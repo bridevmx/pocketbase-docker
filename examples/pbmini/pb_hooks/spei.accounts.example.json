@@ -1,0 +1,7 @@
+{
+  "accounts": [
+    { "account": "012180004567890120", "holder": "NOMBRE DEL TITULAR", "label": "BBVA" },
+    { "account": "072180001234567897", "holder": "NOMBRE DEL TITULAR", "label": "Banorte" },
+    { "account": "4111111111111111", "bank": "40072", "holder": "NOMBRE DEL TITULAR", "label": "Tarjeta Banorte" }
+  ]
+}

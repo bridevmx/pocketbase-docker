@@ -137,7 +137,11 @@ class PB:
             if self.proc.poll() is not None: return False
             try:
                 c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=1); c.request("GET", "/api/health")
-                if c.getresponse().status == 200: return True
+                if c.getresponse().status == 200:
+                    # PBMINI_ON_ERROR=warn deja el servidor ARRIBA aunque pbmini haya abortado su registro (sin rutas ni colecciones: todo da 404). Se falla AQUÍ, con la causa, y no minutos después con un 404 mudo.
+                    ab = [ln for ln in self.log().splitlines() if "pbmini: registro abortado" in ln]
+                    if ab: raise RuntimeError("pbmini abortó el registro con esta configuración (el servidor sigue arriba pero sin módulos): " + ab[-1][-300:])
+                    return True
             except OSError: time.sleep(0.25)
         return False
     def alive(self): return self.proc is not None and self.proc.poll() is None
@@ -429,6 +433,10 @@ def catalog(ctx):
     cases.extend(attacks_tg.build(sys.modules[__name__], ctx, attacks))
     import attacks_clip
     cases.extend(attacks_clip.build(sys.modules[__name__], ctx, attacks))
+    import attacks_spei
+    cases.extend(attacks_spei.build(sys.modules[__name__], ctx, attacks))
+    import attacks_ai
+    cases.extend(attacks_ai.build(sys.modules[__name__], ctx, attacks))
     import attacks_guided
     cases.extend(attacks_guided.build(sys.modules[__name__], ctx, attacks, attacks_v2.routes_table))
 

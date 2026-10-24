@@ -31,6 +31,21 @@ module.exports = {
     retention: { failedDays: 90, paidDays: 0 },    // paidDays 0 = conservar los pagos confirmados (obligaciones fiscales)
     readRules: false,                              // true: el dueño ve sus pagos por la API nativa/realtime (campos internos ocultos)
   },
+  // ai: consultas rápidas de UNA vuelta a Google AI Studio (Gemini/Gemma, capa gratuita; NO es un chat). Variables: GOOGLE_AI_API_KEY, GOOGLE_AI_MODEL (y GOOGLE_AI_FALLBACK_MODEL: respaldo si el principal falla).
+  ai: { enabled: false, timeoutSeconds: 45, perMinute: 30, perUserPerMin: 6, maxOutputTokens: 2048, maxInputChars: 6000, maxImageKB: 4096 },
+  // spei: pagos por transferencia validados contra el CEP de Banxico. Cuentas receptoras en pb_hooks/spei.accounts.json (local, fuera del repo; copia spei.accounts.example.json).
+  spei: {
+    enabled: false, collection: "users", accountsFile: "spei.accounts.json",
+    amount: { min: 100, max: 5000000 },            // centavos enteros
+    orderTtlHours: 24,
+    report: { perUserPerMin: 6, maxReportsPerOrder: 5, maxPendingPerUser: 10 },
+    banxico: { timeoutSeconds: 15, minIntervalMs: 3000, perMinute: 20 },
+    reconcile: { cron: "*/3 * * * *", batch: 20, maxTries: 10, retryMinutes: 5 },
+    vision: { enabled: false, provider: "omnirouter", maxKB: 4096, timeoutSeconds: 25, perUserPerMin: 4, maxPerOrder: 5, minConfidence: 50 },   // provider "google" usa el plugin ai
+    retention: { failedDays: 90, paidDays: 0 },
+    readRules: false,
+    uniqueCents: { enabled: false, max: 99 },     // RECOMENDADO en producción: el monto final lleva centavos únicos ($300.37) y la clave de rastreo de otro cliente no sirve en una orden distinta
+  },
   telegram: {
     enabled: false, collection: "users",
     linkTtl: 600, actionTtl: 3600,                                         // segundos de vida del enlace de vinculación y de los botones de acción

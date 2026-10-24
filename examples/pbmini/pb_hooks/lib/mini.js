@@ -364,6 +364,8 @@ function buildContext(e, route, params, q, b, state) {
     telegramLink: () => mod("telegram").link(e, route),
     notify: (to, msg, opt) => mod("notify").ctxSend(e, route, to, msg, opt),
     clip: { createPayment: (opts) => mod("clip").createPayment(e, route, opts), refund: (id) => mod("clip").ctxRefund(e, route, id), verify: (id) => mod("clip").ctxVerify(e, route, id), get: (id) => mod("clip").ctxGet(e, route, id), list: (q) => mod("clip").ctxList(e, route, q) },
+    ai: { extract: (o) => mod("ai").ctxExtract(e, route, o), ask: (o) => mod("ai").ctxAsk(e, route, o) },
+    spei: { createOrder: (opts) => mod("spei").createOrder(e, route, opts), report: (id, input) => mod("spei").report(e, route, id, input), readReceipt: (id, image) => mod("spei").readReceipt(e, route, id, image), reportFromReceipt: (id, image) => mod("spei").reportFromReceipt(e, route, id, image), get: (id) => mod("spei").ctxGet(e, route, id), list: (q) => mod("spei").ctxList(e, route, q) },
     logout: () => mod("sessions").logout(e, route),
     logoutEverywhere: () => mod("sessions").logoutEverywhere(e, route),
     sessions: () => mod("sessions").list(e),
@@ -607,6 +609,8 @@ function register() {
     mod("mail").validate();
     mod("telegram").validate(); // entorno (TELEGRAM_*) y acciones de botones: aborta si algo falta o es inválido
     mod("clip").validate(); // entorno (CLIP_*): aborta si algo falta o es inválido
+    mod("ai").validate(); // entorno (GOOGLE_AI_*): aborta si algo falta o es inválido
+    mod("spei").validate(); // entorno (OMNIROUTER_*, SPEI_BANXICO_URL) y archivo de cuentas: aborta si algo falta o es inválido
     mod("cron").jobs().forEach((j) => { // el cuerpo de cada tarea se serializa y corre en una VM aislada: el id (validado ^[a-z0-9_]+$) va como literal
       const fn = eval("(() => require(__hooks + '/lib/cron.js').run(" + JSON.stringify(j.id) + "))");
       cronAdd("pbmini_" + j.id, j.schedule, fn);
@@ -637,6 +641,11 @@ function register() {
       cronAdd("pbmini_clip_reconcile", conf.clip.reconcile.cron, () => require(`${__hooks}/lib/clip.js`).reconcile($app)); // respaldo de los webhooks perdidos
       cronAdd("pbmini_clip_purge", "17 3 * * *", () => require(`${__hooks}/lib/clip.js`).purge($app)); // retención por fechas de cierre
       onRecordAfterDeleteSuccess((e) => { require(`${__hooks}/lib/clip.js`).onUserDeleted(e); return e.next(); }, conf.clip.collection); // anonimiza los pagos del usuario borrado
+    }
+    if (conf.spei.enabled) {
+      cronAdd("pbmini_spei_reconcile", conf.spei.reconcile.cron, () => require(`${__hooks}/lib/spei.js`).reconcile($app)); // reintenta las transferencias que Banxico aún no muestra
+      cronAdd("pbmini_spei_purge", "19 3 * * *", () => require(`${__hooks}/lib/spei.js`).purge($app)); // retención por fechas de cierre
+      onRecordAfterDeleteSuccess((e) => { require(`${__hooks}/lib/spei.js`).onUserDeleted(e); return e.next(); }, conf.spei.collection); // anonimiza las órdenes del usuario borrado
     }
     $app.onServe().bindFunc((e) => { require(`${__hooks}/lib/mini.js`).onServe(); return e.next(); });
     routerUse(new Middleware((e) => require(`${__hooks}/lib/mini.js`).guardPaths(e), -1100, "pbmini_paths"));
@@ -832,6 +841,7 @@ function onServe() {
   if (conf.access.enabled) attempt("access", () => mod("access").validateSchema($app));
   if (conf.telegram.enabled) attempt("telegram", () => { mod("telegram").ensure($app); mod("telegram").validateSchema($app); mod("telegram").boot(); });
   if (conf.clip.enabled) attempt("clip", () => { mod("clip").validateSchema($app); mod("clip").ensure($app); });
+  if (conf.spei.enabled) attempt("spei", () => { mod("spei").validateSchema($app); mod("spei").ensure($app); });
 }
 
 // Tabla de rutas como datos puros (sin funciones): la consumen pbmini:routes, el fuzzer guiado por definiciones y la prueba de tipos.

@@ -169,4 +169,40 @@ function clip(args) {
   }
   die("uso: pbmini:clip status | show <id|referencia> | reconcile | purge [dry] | check [pesos] [wait] | review <id> paid|failed [recibo] confirm | refund <id> confirm | refunded <id> confirm");
 }
-module.exports = { routes, create, access, telegram, clip };
+function spei(args) {
+  args = (args || []).map(String);
+  const sub = args[0], conf = require(`${__hooks}/lib/config.js`).load().spei, T = require(`${__hooks}/lib/spei.js`);
+  const out = (o) => console.log(typeof o === "string" ? o : JSON.stringify(o, null, 2)), die = (m, code) => { console.log("pbmini:spei: " + m); $os.exit(code || 1); };
+  if (!conf.enabled) die("el módulo está apagado (spei.enabled en pbmini.config.js)");
+  const confirm = args[args.length - 1] === "confirm", rest = confirm ? args.slice(0, -1) : args;
+  const need = () => { if (!confirm) die("esta operación requiere la palabra `confirm` al final (nada se ha cambiado)", 2); };
+  const tail = (n) => "…" + String(n).slice(-4); // nunca se imprimen cuentas completas
+  const show = (r) => ({ id: r.id, status: r.getString("status"), amount: r.getInt("amount"), base_amount: r.getInt("base_amount"), user: r.getString("user"), subject: r.getString("subject_kind") + ":" + r.getString("subject_id"), account: tail(r.getString("account")) + " " + r.getString("account_label"),
+    customer_bank: r.getString("customer_bank"), emisor: r.getString("emisor"), tracking: r.getString("tracking"), last_tracking: r.getString("last_tracking"), source: r.getString("source"), reports: r.getInt("reports"), tries: r.getInt("tries"), next_try: r.getString("next_try"),
+    banxico: { status: r.getString("bx_status"), amount: r.getInt("bx_amount"), processed: r.getString("bx_processed"), account: r.getString("bx_account_tail") }, note: r.getString("note"), created: r.getString("created"), expires_at: r.getString("expires_at"), paid_at: r.getString("paid_at"), closed_at: r.getString("closed_at"), activated_at: r.getString("activated_at") });
+  let en; try { en = T.env(); } catch (err) { die(String(err.message || err)); }
+  if (sub === "status") {
+    const count = (st) => { try { return $app.countRecords(T.COLL, $dbx.exp("status = {:s}", { s: st })); } catch (_) { return "n/d"; } }, by = {};
+    Object.keys(T.core.TRANSITIONS).forEach((st) => { by[st] = count(st); });
+    let accs = []; try { accs = T.accounts().map((a) => ({ label: a.label, bank: a.bank + " " + a.bankName, kind: a.kind, account: tail(a.account) })); } catch (err) { die(String(err.message || err)); }
+    return out({ enabled: true, banxico: en.bx, accounts: accs, uniqueCents: conf.uniqueCents.enabled, vision: conf.vision.enabled ? conf.vision.provider : "apagada", orderTtlHours: conf.orderTtlHours, orders: by });
+  }
+  if (sub === "show") { if (rest.length !== 2) die("uso: pbmini:spei show <id>"); let r = null; try { r = $app.findRecordById(T.COLL, rest[1]); } catch (_) { /* no existe */ } if (!r) die("no existe esa orden"); return out(show(r)); }
+  if (sub === "reconcile") { const r = T.reconcile($app); out(r); if (r.review > 0 || r.stuck > 0) $os.exit(1); return; }
+  if (sub === "purge") { out(T.purge($app, { dryRun: rest[1] === "dry" })); return; }
+  if (sub === "review") { // un operador resuelve una anomalía tras comprobarla en la banca en línea
+    if (rest.length !== 3) die("uso: pbmini:spei review <id> paid|failed confirm"); need();
+    try { out(T.reviewResolve($app, rest[1], rest[2], "cli")); } catch (err) { die(String(err.message || err)); } return;
+  }
+  if (sub === "check") { // consulta a Banxico SIN crear ni tocar ninguna orden: pbmini:spei check <clave> <código-banco-emisor> <pesos> [dd-mm-aaaa] [n.º de cuenta]
+    if (rest.length < 4 || rest.length > 6) die("uso: pbmini:spei check <clave-de-rastreo> <código-banco-emisor> <pesos> [dd-mm-aaaa] [n.º de cuenta del archivo, desde 1]");
+    const tracking = T.core.trackingKey(rest[1]), cents = T.core.bxCents(rest[3]), date = rest[4] ? T.core.parseDate(rest[4]) : T.core.mxDate(Date.now()), accs = T.accounts(), a = accs[(rest[5] ? Number(rest[5]) : 1) - 1];
+    if (!tracking) die("clave de rastreo inválida (8 a 30 caracteres [A-Za-z0-9_.-])"); if (cents === null || cents < 1) die("monto inválido"); if (!date) die("fecha inválida (dd-mm-aaaa)"); if (!a) die("n.º de cuenta fuera del archivo de cuentas");
+    const bx = T.bxQuery({ tracking, date, emisor: rest[2], receptor: a.bank, account: a.account, amountCents: cents });
+    if (bx.error) { console.log("-- Banxico no respondió con una tabla: " + bx.error); $os.exit(1); }
+    if (!bx.found) { console.log("-- Banxico: operación NO encontrada con esos datos (la clave se busca exacta: mayúsculas y guiones cuentan; el monto, el emisor, la cuenta y la fecha deben coincidir)"); $os.exit(1); }
+    return out({ encontrada: true, estado: bx.status, monto: bx.amountCents / 100, cuenta: tail(bx.account), procesada: bx.processedMs ? new Date(bx.processedMs).toISOString() : null, clave: bx.tracking, emisor: bx.issuing, receptor: bx.receiving });
+  }
+  die("uso: pbmini:spei status | show <id> | reconcile | purge [dry] | review <id> paid|failed confirm | check <clave> <banco> <pesos> [fecha] [n.º cuenta]");
+}
+module.exports = { routes, create, access, telegram, clip, spei };

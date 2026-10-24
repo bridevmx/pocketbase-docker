@@ -28,3 +28,8 @@ $app.rootCmd.addCommand(new Command({
   short: "pbmini:clip status|show|reconcile|purge|check|review|refund|refunded -> pagos con Clip (las operaciones que mueven dinero exigen `confirm`)",
   run: (cmd, args) => require(`${__hooks}/lib/cli.js`).clip(args),
 }));
+$app.rootCmd.addCommand(new Command({
+  use: "pbmini:spei",
+  short: "pbmini:spei status|show|reconcile|purge|review|check -> pagos por transferencia SPEI (review exige `confirm`; check consulta a Banxico sin tocar órdenes)",
+  run: (cmd, args) => require(`${__hooks}/lib/cli.js`).spei(args),
+}));
